@@ -16,14 +16,11 @@
 #
 
 class PBR_Int
+  # wraps integer to ensure index does not get lost through function calls. 
+  # TODO: we are always passing file and index together, wrap both in PBR_Int and then name it better
+  attr_accessor :value
   def initialize()
     @value = 0
-  end
-  def value
-    @value
-  end
-  def value=(x)
-    @value = x
   end
 end
 
@@ -38,7 +35,9 @@ class LEF_File
     index.value = 0
     line = get_current_line(file, index)
     until line.match(/PROPERTYDEFINITIONS/) or Cell::start_line?(line)
+      # looks for a propert definition or MACRO to start parsing the LEF, everything else is a header.
       if line.match(/\S;\s*$/)
+        # check that lines end in semicolons, they should not so add it to errors
         error_msg = (index.value + 1).to_s + "\n"
         @errors[:line_ending_semicolons].push(error_msg)
         line = line.gsub(/;\s*$/, " ;\n")
@@ -47,6 +46,7 @@ class LEF_File
       line = get_next_line(file, index)
     end
     if line.match(/PROPERTYDEFINITIONS/)
+      # if it was property definitions before macros, parse properties in that block
       @property_definitions = Array.new
       @property_definitions_start = line
       line = get_next_line(file, index)
@@ -62,14 +62,21 @@ class LEF_File
       @property_definitions_end = line
       line = get_next_line(file, index)
     else
+      # if we got cell/macro first, we are missing our properties, so error
       errors[:missing_property_definitions].push("")
     end
-  end_of_file = false
+    end_of_file = false
     until end_of_file or line.match(/END LIBRARY/)
+      # until the LEF file tells us that there is no more file, keep parsing
+      # the goal here is that the Cell will go looking/checking its properties 
+      # in the lib to ensure those are correct. It will increment the index until 
+      # it is out of the macro and then. This cell and its properties will be added 
+      # to the total cells.
       if Cell::start_line?(line)
         new_cell = Cell.new(file, index, errors, debug_mode)
         @cells[new_cell.name] = new_cell
       else
+        # at this level of parsing we should only see things that match cells.
         raise "Error: Unexpected line at #{index.value}: #{line}"
         get_next_line(file, index)
       end
@@ -150,7 +157,7 @@ class Cell
     @start_line = line
     @start_line_num = index.value + 1
     @name = line.split()[1]
-#    line.match(/^MACRO\s+([\w\d_]+)/) {|m| @name = m[1]}
+    #line.match(/^MACRO\s+([\w\d_]+)/) {|m| @name = m[1]}
     @errors = errors
     @debug_mode = debug_mode
     if(@debug_mode)then
@@ -163,10 +170,13 @@ class Cell
     
     line = get_next_line(file, index)
     while !line.match(/^END/) && !Cell::start_line?(line)
+      # until we get to the end of the MACRO, look for things we know
       if Pin::start_line?(line)
+        # look for things that should be under the pins and add it to the pins of the Cell
         new_pin = Pin.new(file, index, errors, debug_mode, @name)
         @pins[new_pin.name] = new_pin
       elsif LayerCollection::start_line?(line)
+        # look for things under a layer collection and add it ot the obstructiosn of the Cell
         new_obstruction = LayerCollection.new(file, index, errors, debug_mode)
         @obstructions = new_obstruction
       else
@@ -180,6 +190,19 @@ class Cell
         if split_line[0] == "PROPERTY"
           @keywordProperties.push(line)
         else
+          # TODO: can easily be a case
+          # key_line = split_line[0]
+          # case key_line
+          #   where "FOREIGN"
+          #   where "ORIGIN"
+          #   where "CLASS"
+          #   where "SIZE"
+          #   where "SYMMETRY"
+          #   where "SITE"
+          #   else
+          #     # check for the other PropertyOrders here
+          # end
+          # \@properties.push(line)
           if split_line[0] == "ORIGIN"
             origin_found = true
             if split_line[1] != "0" || split_line[2] != "0" then
@@ -219,6 +242,7 @@ class Cell
     if(@debug_mode)then
       puts (index.value + 1).to_s + ": END cell line " + line
     end
+    # check to see if you have found all of the neccesary components of the Cell
     if !origin_found
       @errors[:missing_origin].push("Line " + @start_line_num.to_s() + ": " + @name + "\n")
     end
@@ -234,6 +258,7 @@ class Cell
     if !size_found
       @errors[:missing_size].push("Line " + @start_line_num.to_s() + ": " + @name + "\n")
     end
+    # make sure you have end line
     if line.match(/^END/)
       @end_line = line
       if !line.match(/^END #{Regexp.quote(@name)}/)
@@ -245,6 +270,7 @@ class Cell
     end
   end
   def sort!()
+    # sort all of your cell attributes once they are loaded.
     @pins.each_value{|pin| pin.sort!()}
     if(!@obstructions.nil?)
       @obstructions.sort!()
@@ -259,6 +285,10 @@ class Cell
     @keywordProperties.sort!()
   end
   def print(outFile)
+    # print sorted cell properties to a file
+    # TODO: probably should have to do a sort before this, so sort! should be private and called here
+    # TODO: writing to a file all over the place is inadvisable, it would be better to ouput a string 
+    # that we the output all at once somewhere else.
     outFile.print @start_line
     @properties.each do |line|
       outFile.print line
@@ -278,12 +308,15 @@ class Cell
     outFile.print "\n"
   end
   def [](ind)
+    # associate pins to the index of the cells
     @pins[ind]
   end
+  # TODO: make these attr_accessors
   def pins()
     @pins
   end
   def properties()
+    # why return here and nowhere else
     return @properties
   end
   def keywordProperties()
@@ -424,13 +457,13 @@ class Pin
   def [](ind)
     return @layers[ind]
   end
+  # could be attr accessors
   def properties()
     @properties
   end
   def keywordProperties()
     @keywordProperties
   end
-  # Getter for instance var name
   def name
     @name
   end
@@ -678,6 +711,7 @@ def check_for_uncommon_properties(error_array, property_hash)
 end
 
 def get_current_line(file, index)
+  # takes the next nonempty line past index, while incrementing index for tracking where you are in the file
   current_line = file[index.value]
   if !current_line.nil?
     current_line.chomp()
@@ -693,12 +727,26 @@ def get_current_line(file, index)
 end
 
 def get_next_line(file, index)
+  # does the same as get_current_line, but just does it on the next line.
   index.value += 1
   return get_current_line(file, index)
 end
 
 #main 
 def main(args)
+  # TODO: 
+  # add JSON support (trivial) (Josh)
+  # tlef from Layer object, set class var of layers by a tlef file.           (Matt)
+  # optionalize all functionality better.                                     (James)
+  #   - add  wsdir and appropriate function call
+  #   - ensure every action the program is taking is specified by an argument.
+  # allow passing a ws_dir and intelligently search for tlef, lib, and lef    (Josh)
+  #    ideal: `sortLefdata.rb -wsdir my_proj`
+  # general: cleanup as you go                                                (All)
+  #   - functionalize the code (<100 lines per function)
+  #   - cleanup sysout
+  #   - dont be stupid
+  # 
   # Parse command-line inputs. 
   next_token_is_liberty = false
   liberty_filepath = nil
@@ -843,6 +891,7 @@ def main(args)
 
     # For every file in the list:
     liberty_files.each do |filename|
+      # TODO: area, pins, and directions (case sensitive)
       # Find all lines that declare the start of a cell.
       if debug_mode
         puts "grep1"
@@ -929,6 +978,7 @@ def main(args)
 									lef_cell_area = lef_cell_dim[1].to_f() * lef_cell_dim[3].to_f()
                 end
               end
+              # TODO: investigate excessive output
               puts liberty_data[filename][cell].searchedProperties()
 #              puts liberty_data[filename][cell].property("area")
               liberty_cell_area = liberty_data[filename][cell].property("area")
