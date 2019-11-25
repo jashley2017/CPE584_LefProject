@@ -21,3 +21,16 @@ Projects TODOs:
      - cleanup sysout
      - dont be stupid
 
+
+November 25, 2019 Meeting Notes: 
+* -projdir option
+  - There should be one LEF many LIB.
+  - You want to be able to specify a project directory and search for DDC/syn and DDC/pnt
+  - DDCs can have multiple subdirs with syn and pnr. Do not follow symbolic links and only go to a certain depth.
+* general/cleanup
+   - PBRInt should instead be LineTrackedFile and contain a file an line number. 
+   - strange should be replaces with "missing", "orphan", etc. 
+* opt parsing 
+    - standard ruby module for option gathering
+    - add projdir, not wsdir
+
