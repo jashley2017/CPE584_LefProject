@@ -1,0 +1,116 @@
+digraph parseLEF {
+    ordering=out;
+    size="12,8";
+    ratio=fill;
+    rankdir=TB;
+    style="invis";    
+    concentrate=true;
+    node [fontname=Helvetica shape=record];
+
+    ###
+    ###
+    ###
+
+    subgraph cluster {
+        rankdir=TB;
+        label="Parse LEF";
+        graph [style=solid];
+        SKIP_LINES [
+            shape=plaintext
+            label=<
+                <table border="0" cellborder="1">
+                    <tr>
+                        <td colspan="3">Locate in LEF</td>
+                    </tr>
+                    <tr>
+                        <td port='prop'>PROPERTYDEFINITIONS</td>
+                        <td port='macro'>MACRO</td>
+                        <td port='end'>END LIBRARY</td>
+                    </tr>
+                </table>
+            >
+        ];
+        # PROPERTYDEFINITIONS
+        P_READ_LINE [label="Record property"];
+
+        SKIP_LINES:prop
+        -> P_READ_LINE
+        -> SKIP_LINES;
+        # MACRO
+        SKIP_LINES:macro
+        -> M_SKIP_LINES;        
+
+            M_SKIP_LINES [
+                shape=plaintext
+                label=<
+                    <table border="0" cellborder="1">
+                        <tr>
+                            <td colspan="4">Locate in cell</td>
+                        </tr>
+                        <tr>
+                            <td port='prop'>PROPERTY</td>
+                            <td port='pin'>PIN</td>
+                            <td port='layer'>LAYER</td>
+                            <td port='end'>END CELL</td>
+                        </tr>
+                    </table>
+                >
+            ];
+            # Property
+            M_PROP_RECORD [label="{Record property|ORIGIN\nFOREIGN\nCLASS\nSIZE\nSYMMETRY\nSITE}"];
+
+            M_SKIP_LINES:prop
+            -> M_PROP_RECORD
+            -> M_SKIP_LINES:prop;
+            # Pin
+            M_SKIP_LINES:pin
+            -> PIN_SKIP_LINES;
+
+                PIN_SKIP_LINES [
+                    shape=plaintext
+                    label=<
+                        <table border="0" cellborder="1">
+                            <tr>
+                                <td colspan="3">Locate in pin</td>
+                            </tr>
+                            <tr>
+                                <td port='port'>PORT</td>
+                                <td port='layer'>LAYER</td>
+                                <td port='end'>END PIN</td>
+                            </tr>
+                        </table>
+                    >
+                ];
+                # Port
+                PIN_PROP [label="{Record property|TAPERRULE\nDIRECTION\nUSE\nNETEXPR\nSUPPLYSENSITIVITY\nGROUNDSENSITIVITY\nSHAPE\nMUSTJOIN\nANTENNAPARTIALMETALAREA\nANTENNAPARTIALMETALSIDEAREA\nANTENNAPARTIALCUTAREA\nANTENNADIFFAREA\nANTENNAMODEL\nANTENNAGATEAREA\nANTENNAMAXAREACAR\nANTENNAMAXSIDEAREACAR\nANTENNAMAXCUTCAR}"]
+                PIN_SKIP_LINES:port
+                -> PIN_PROP
+                -> PIN_SKIP_LINES:port;
+
+                # Layer
+                PIN_LAYER [label="{Record Layer|LP_HVTP\nLP_HVTN\nCONT\nME1\nVI1\nME2\nVI2\nME3}"];
+                PIN_SKIP_LINES:layer
+                -> PIN_LAYER
+                -> PIN_SKIP_LINES:layer;
+
+                # End Pin
+                PIN_SKIP_LINES:end
+                -> M_SKIP_LINES:pin;
+            # Layer
+            CELL_LAYER [label="{Record Layer|LP_HVTP\nLP_HVTN\nCONT\nME1\nVI1\nME2\nVI2\nME3}"];
+            M_SKIP_LINES:layer
+            -> CELL_LAYER
+            -> M_SKIP_LINES:layer;
+
+            # End Cell
+            M_SKIP_LINES:end
+            -> SKIP_LINES:macro;
+        # End LEF
+        { rank=same; SKIP_LINES; LEF_EXIT;}
+        LEF_EXIT [label="Finished" shape=oval];
+
+        SKIP_LINES:end
+        -> LEF_EXIT;
+    }
+    
+}
