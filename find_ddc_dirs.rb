@@ -33,67 +33,49 @@ class DdcScanner
       "-type d",
       "-name 'pnr'"
     ]
-    find_pnr_cmd_str = find_pnr_cmd.join(" ")
     find_syn_cmd = [
       "find",
       "#{proj_dir}",
       "-type d",
       "-name 'syn'"
     ]
-    find_syn_cmd_str = find_syn_cmd.join(" ")
     find_conf_cmd = [
       "find",
       "#{proj_dir}",
       "-type d",
       "-name 'config'"
     ]
-    find_conf_cmd_str = find_conf_cmd.join(" ")
     # hash of arrays to tell us what resides under that directory
     # should look like:
     # { "fullpath" : ['syn', 'pnr'], "fullpath2": ['config'] }
     ddc_dirs = Hash.new
-    syn_dirs = Array.new
-    pnr_dirs = Array.new
-    conf_dirs = Array.new
 
-    # need to group each together under a their respective directories
-    # so that the user can then pick which chips they want to operate on
-    IO.popen(find_syn_cmd_str) {|syn_dir_io|
-      syn_dir_io.readlines.each { |syn_dir|
-        parent_syn = File.expand_path('..', syn_dir)
-        if !ddc_dirs[parent_syn].is_a?(Array)
-          ddc_dirs[parent_syn] = Array.new
-        end
-        ddc_dirs[parent_syn] << 'syn'
-      }
-    }
-    IO.popen(find_pnr_cmd_str) {|pnr_dir_io|
-      pnr_dir_io.readlines.each { |pnr_dir|
-        parent_pnr = File.expand_path('..', pnr_dir)
-        if !ddc_dirs[parent_pnr].is_a?(Array)
-          ddc_dirs[parent_pnr] = Array.new
-        end
-        ddc_dirs[parent_pnr] << 'pnr'
-      }
-    }
-    IO.popen(find_conf_cmd_str) {|conf_dir_io|
-      conf_dir_io.readlines.each { |conf_dir|
-        parent_conf = File.expand_path('..', conf_dir)
-        if !ddc_dirs[parent_conf].is_a?(Array)
-          ddc_dirs[parent_conf] = Array.new
-        end
-        ddc_dirs[parent_conf] << 'config'
-      }
-    }
+    find_dirs_with_cmd(find_pnr_cmd, ddc_dirs, "pnr")
+    find_dirs_with_cmd(find_syn_cmd, ddc_dirs, "syn")
+    find_dirs_with_cmd(find_conf_cmd, ddc_dirs, "config")
+
     return ddc_dirs
     
   end # scan_for_dirs
 
   #
-  # scans acquired chip dirs for lef files
+  # finds dirs with a find cmd and associates the parent dir with the given key
+  #
+  def self.find_dirs_with_cmd(find_cmd, ddc_dirs, key)
+    find_res = collect_io_results(find_cmd)
+    find_res.each { |dir|
+        parent = File.expand_path('..', dir)
+        if !ddc_dirs[parent].is_a?(Array)
+          ddc_dirs[parent] = Array.new
+        end
+        ddc_dirs[parent] << key
+    }
+  end # find_dirs_with_cmd
+
+  #
+  # scans acquired ddc dirs for lef files
   #
   def self.scan_for_lef_files(ddc_dir)
-    lef_files = Array.new
     find_lef_cmd = [
       "find",
       "-L",
@@ -101,17 +83,13 @@ class DdcScanner
       "-type f",
       "-name '*.lef'"
     ]
-    find_lef_cmd_str = find_lef_cmd.join(" ")
-    IO.popen(find_lef_cmd_str) {|lef_filepath_io|
-      lef_filepath_io.readlines.each { |lef_filepath|
-        lef_files << lef_filepath
-      }
-    }
-    return lef_files
+    return collect_io_results(find_lef_cmd)
   end # scan_for_lef_files
 
+  #
+  # scans acquired ddc dirs for lib files
+  #
   def self.scan_for_lib_files(ddc_dir)
-    lib_files = Array.new
     find_lib_cmd = [
       "find",
       "-L",
@@ -119,17 +97,13 @@ class DdcScanner
       "-type f",
       "-name '*.lib'"
     ]
-    find_lib_cmd_str = find_lib_cmd.join(" ")
-    IO.popen(find_lib_cmd_str) {|lib_filepath_io|
-      lib_filepath_io.readlines.each { |lib_filepath|
-        lib_files << lib_filepath
-      }
-    }
-    return lib_files
+    return collect_io_results(find_lib_cmd)
   end # scan_for_lib_files
 
+  #
+  # scans acquired ddc dirs for tlef files
+  #
   def self.scan_for_tlef_files(projdir)
-    tlef_files = Array.new
     find_tlef_cmd = [
       "find",
       "-L",
@@ -137,42 +111,67 @@ class DdcScanner
       "-type f",
       "-name '*.tlef'", 
       "-or",
-      "-name '*.tf'"
+      "-name 'techlist.tf'"
     ]
-    find_tlef_cmd_str = find_tlef_cmd.join(" ")
-    IO.popen(find_tlef_cmd_str) {|tlef_filepath_io|
-      tlef_filepath_io.readlines.each { |tlef_filepath|
-        tlef_files << tlef_filepath
+    return collect_io_results(find_tlef_cmd)
+  end # scan_for_tlef_files
+
+  #
+  # execute a system command via IO and format it into array of output lines
+  #
+  def self.collect_io_results(cmd_opt_list)
+    cmd_str = cmd_opt_list.join(" ")
+    res_collection = Array.new
+    IO.popen(cmd_str) {|res_io|
+      res_io.readlines.each { |res_line|
+        res_collection << res_line.gsub("\n","")
       }
     }
-    return tlef_files
-  end # scan_for_tlef_files
+    return res_collection
+  end
 end # DdcScanner
 
-if __FILE__ == $PROGRAM_NAME then 
-  ddc_dict = DdcScanner.scan_for_files("/proj/tlib/scs8lsa")
+#
+# sysio wrapper for DdcScanner, takes in project directory for DdcScanner to work on
+#
+def ddc_scan_from_sysio(proj_dir)
+  ddc_dict = DdcScanner.scan_for_files(proj_dir)
   output = ""
-  found_tlef = false
+  found_tlef = nil
+  count = 1
+  option_dict = Hash.new
   ddc_dict.each_pair { |ddc_dir, file_types_dict|
     if file_types_dict.key?("tlef")
-      if found_tlef || file_types_dict['tlef'].length > 1
+      if !found_tlef.nil? || file_types_dict['tlef'].length > 1
         output << "WARNING: found multiple TLEFs, using the first one. Specify a TLEF in the args for specific one\n"
       end
       if file_types_dict['tlef'].length > 0
         output << "Using tlef config from #{ddc_dir} : #{file_types_dict['tlef'].first}\n"
-        found_tlef = true
+        found_tlef = file_types_dict['tlef'].first
+      else
+        output << "WARNING: no TLEF found. Using default layer collections"
       end
-      # TODO: comprehend no tlef
-      # tlef dir should have no lef or libs
       next
     end
     if file_types_dict.key?("lef")
       if file_types_dict.key?("lib")
-        output << "DDC: #{ddc_dir}, found #{file_types_dict['lef'].length} LEF files and #{file_types_dict['lib'].length} LIB files.\n"
+        output << "#{count}. DDC: #{ddc_dir}, found #{file_types_dict['lef'].length} LEF files and #{file_types_dict['lib'].length} LIB files.\n"
       else
-        output << "DDC: #{ddc_dir}, only found #{file_types_dict['lef'].length} LEF files, no lib found.\n"
+        output << "#{count}. DDC: #{ddc_dir}, only found #{file_types_dict['lef'].length} LEF files, no lib found.\n"
       end
+      option_dict[count.to_s] = {"lef" => file_types_dict['lef'], "lib" => file_types_dict['lib'], 'tlef' => found_tlef}
+      count += 1 
     end
   }
   puts output
+  option_choice = gets.strip
+  return option_dict[option_choice]
+  # puts option_dict[option_choice]
+end
+
+
+if __FILE__ == $PROGRAM_NAME then 
+  # ddc_scan_from_sysio("/proj/tlib/scs8lsa")
+  res = ddc_scan_from_sysio("/home/jashley2017/school/cpe584/test")
+  puts res
 end
