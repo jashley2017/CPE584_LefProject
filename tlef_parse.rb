@@ -8,6 +8,10 @@ class TLEF_File
         
     end
 
+    def get_layers_list()
+        return @tlef_layers.keys
+    end
+
     def _match_begin_layer(line)
         layer_name = ''
         if line.match(/^\s*LAYER\s+\w+\s*$/) #line has a layer definition
@@ -47,7 +51,7 @@ class TLEF_File
                 end
             end
         }
-        PP.pp(@tlef_layers)
+
     end
 
 end
@@ -55,3 +59,4 @@ end
 filename = "./s40ulp-s-rh-6ml-25odr.tlef"
 my_file = TLEF_File.new(filename)
 my_file.tlef_parse()
+puts  my_file.get_layers_list
