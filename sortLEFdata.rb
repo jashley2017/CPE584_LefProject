@@ -24,6 +24,91 @@ class PBR_Int
   end
 end
 
+class TF_File
+  #parses tf file given by file_path. Stores a hash of valid layers with information.
+  def initialize(file_path)
+      @layers = Array.new
+      @file_path = file_path
+      
+  end
+
+  def layers()
+      return @layers
+  end
+  def tf_parse()
+      techLayers_found = false
+      techLayers_end = false 
+      File.foreach(@file_path).with_index { |line, line_num|
+          if line.match(/\(techLayers/) #first find techLayers section
+              techLayers_found = true
+          elsif line.match(/\) ; techLayers/) #found end of techlayers
+              techLayers_end = true
+          elsif techLayers_found && !line.match(/^ ;/) #searching techLayers, havent reached end yet, isn't ;(layerName layerNumber Abbr.) line.
+              split_line = line.split(" ")
+              @layers << split_line[1]
+          end
+          break if techLayers_end == true
+      }
+  end
+  
+end
+
+class TLEF_File
+  #parses tlef file given by file_path. Stores a hash of valid layers with information.
+  def initialize(file_path)
+      @tlef_layers = Hash.new
+      @file_path = file_path
+      
+  end
+
+  def get_layers_list()
+      return @tlef_layers.keys
+  end
+
+  def _match_begin_layer(line)
+      layer_name = ''
+      if line.match(/^\s*LAYER\s+\w+\s*$/) #line has a layer definition
+          layer_name = line.split(" ")[1]# extracted layer name
+          layer_name.rstrip!
+      end
+      return layer_name
+  end
+
+  def _match_end_layer(line)
+      layer_name = ''
+      if line.match(/^\s*END\s+\w+\s*$/) #match end of line
+          layer_name = line.split(" ")[1]
+          layer_name.rstrip!
+      end
+      return layer_name
+  end
+
+  def tlef_parse()
+      File.foreach(@file_path).with_index { |line, line_num|
+          if !(line.match(/^\s*\#/) or line.match(/^\s*$/))#only look at lines that aren't comments
+              comment_split_line = line.split("#")
+              line = comment_split_line[0] #line is now everything before inline comment
+              
+              #line represents beginning of layer def
+              begin_layer = self._match_begin_layer(line)
+              if begin_layer != '' #begin layer exists
+                  @tlef_layers[begin_layer] = {'begin_line'=> line_num}
+              end 
+
+              #line represents end of layer def
+              end_layer = self._match_end_layer(line)
+              if end_layer != '' #end layer found 
+                  if @tlef_layers.key?(end_layer)
+                      @tlef_layers[end_layer]['end_line'] = line_num
+                  end
+              end
+          end
+      }
+
+  end
+
+end
+
 class LEF_File
   def initialize(file, errors, debug_mode)
     index = PBR_Int.new
@@ -2036,5 +2121,5 @@ end
 # this runs the program if it is called from 
 # command line.  
 if __FILE__ == $PROGRAM_NAME then 
-  main(ARGV)
+ main(ARGV)
 end
