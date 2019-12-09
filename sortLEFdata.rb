@@ -732,7 +732,6 @@ def get_next_line(file, index)
   return get_current_line(file, index)
 end
 
-#main 
 def main(args)
   # TODO: 
   # add JSON support (trivial) (Josh)
@@ -747,18 +746,20 @@ def main(args)
   #   - cleanup sysout
   #   - dont be stupid
   # 
+  ################################## ARG PARSING
   # Parse command-line inputs. 
   next_token_is_liberty = false
-  liberty_filepath = nil
+  liberty_dirpath = nil
   next_token_is_layer_order = false
   layer_order = LayerCollection::layer_order
   debug_mode = false
   help_mode = false
-  lefFilePath = nil
+  lef_opt_filename = nil
+  proj_dir = nil
   while args.length() > 0
     next_arg = args.shift
     if next_token_is_liberty
-      liberty_filepath = next_arg
+      liberty_dirpath = next_arg
       next_token_is_liberty = false
     elsif next_token_is_layer_order
       layer_order = next_arg
@@ -766,11 +767,13 @@ def main(args)
     elsif next_arg.match(/^-l$/)
       next_token_is_liberty = true
     elsif next_arg.match(/^--liberty=/)
-      next_arg.match(/^--liberty=(.*)$/){ |m| liberty_filepath = m[1] }
+      next_arg.match(/^--liberty=(.*)$/){ |m| liberty_dirpath = m[1] }
     elsif next_arg.match(/^-o$/)
       next_token_is_layer_order = true
     elsif next_arg.match(/^--layer-order=/)
       next_arg.match(/^--layer-order=(.*)$/){ |m| layer_order = m[1] }
+    elsif next_arg.match(/^--ws-dir=/)
+      next_arg.match(/^--ws-dir=(\S+)/){|m| proj_dir = m[1]}
     elsif next_arg.match(/^-d$/)
       debug_mode = true
     elsif next_arg.match(/^--debug$/)
@@ -780,20 +783,20 @@ def main(args)
     elsif next_arg.match(/^--help$/)
       help_mode = true
     else
-      lefFilePath = next_arg
+      lef_opt_filename = next_arg
     end
   end
   # If help is asked for or needed, print help message then abort.
-  if (help_mode || lefFilePath.nil?) then
+  if (help_mode || (lef_opt_filename.nil? && proj_dir.nil?)) then
     puts "Reads a LEF file and sorts the data numerically within each shape for easier diff comparison"
     puts "Usage: sortLEFdata.rb lef_file [options]"
     puts "Options: "
     puts "\t-h"
     puts "\t--help"
     puts "\t\tPrints this help message, then aborts."
-    puts "\t-l liberty_filepath"
-    puts "\t--liberty=liberty_filepath"
-    puts "\t\tCompares LEF contents to Liberty files at path liberty_filepath."
+    puts "\t-l liberty_dirpath"
+    puts "\t--liberty=liberty_dirpath"
+    puts "\t\tCompares LEF contents to Liberty files at path liberty_dirpath."
     puts "\t\tDiscrepancies written to: lef_file_errors"
     puts "\t-o order_id"
     puts "\t--layer-order=order_id"
@@ -806,34 +809,26 @@ def main(args)
     puts "Output: lef_file_sorted\n\n"
     abort
   end
+  
+  ################################## WS DIR Parsing
+  # does the ws_dir parsing
+  files_to_use_dict = nil
+  liberty_files = nil
+  lef_files = nil
+  tlef_files = nil
+  unless proj_dir.nil?
+    files_to_use_dict = ddc_scan_from_sysio(proj_dir) 
+    lef_files = files_to_use_dict['lef']
+    liberty_files = files_to_use_dict['lib']
+    tlef_files = files_to_use_dict['tlef']
+  end
+  # TODO: need to be able parse on multiple lefs and libs
+
+  ################################## LEF Parsing
   # Set layer ordering
   LayerCollection::layer_order = layer_order
   
-  # Read in the entire LEF file
-  lefFile = File.open(lefFilePath,"r")
-  lefLines = lefFile.readlines
-  lefFile.close()
-
-  # Strip comments from LEF file
-  comment_lines = Array.new
-  index = 0
-  lefLines.each do |line|
-    if line.match(/\#/)
-      comment_lines.push("Line " + (index + 1).to_s() + ": " + line.chomp() + "\n")
-      lefLines[index] = line.gsub(/\s*\#.*/, "")
-    end
-    index += 1
-  end
-  if !comment_lines.empty?
-    comments_filename = lefFilePath + "_comments"
-    comments_file = File.open(comments_filename, "w")
-    comment_lines.each do |line|
-      comments_file.write(line)
-    end
-    comments_file.close()
-  end
-
-  # Make an array to hold error messages
+  # Initialize array for the LEF parsing Errors
   errors = Hash.new
   errors[:line_ending_semicolons]       = Array.new
   
@@ -858,28 +853,63 @@ def main(args)
   errors[:strange_direction]            = Array.new
   errors[:missing_use]                  = Array.new
   errors[:strange_use]                  = Array.new
-  
-  # Parse the file
-  parsed_file = LEF_File.new(lefLines, errors, debug_mode)
-  parsed_file.sort!()
 
-  # If Liberty file-parsing is requested, parse Liberty files.
-  if !(liberty_filepath.nil?) then
+  # if we just have one lef specified by the options, use that
+  if  lef_files.nil? || lef_files.empty?
+    lef_files = [lef_opt_filename]
+  end
+  parsed_lef_files = Hash.new
+  lef_files.each { |lef_file_path|
+    # Read in the entire LEF file
+    lefFile = File.open(lef_file_path,"r")
+    lefLines = lefFile.readlines
+    lefFile.close()
+
+    # Strip comments from LEF file
+    comment_lines = Array.new
+    index = 0
+    lefLines.each do |line|
+      if line.match(/\#/)
+        comment_lines.push("Line " + (index + 1).to_s() + ": " + line.chomp() + "\n")
+        lefLines[index] = line.gsub(/\s*\#.*/, "")
+      end
+      index += 1
+    end
+    if !comment_lines.empty?
+      comments_filename = lef_file_path + "_comments"
+      comments_file = File.open(comments_filename, "w")
+      comment_lines.each do |line|
+        comments_file.write(line)
+      end
+      comments_file.close()
+    end
+
+    
+    # Parse the file
+    parsed_lef_file = LEF_File.new(lefLines, errors, debug_mode)
+    parsed_lef_file.sort!()
+    parsed_lef_files[lef_file_path] = parsed_lef_file
+  }
+  
+  ################################## Lib Parsing
+  unless liberty_dirpath.nil? && liberty_files.nil?
     errors[:lef_missing_cell] = Array.new
     errors[:lef_missing_pin] = Array.new
     errors[:liberty_missing_cell] = Array.new
     errors[:liberty_missing_pin] = Array.new
     errors[:area_mismatch] = Array.new
-    # If the path given doesn't have the folder-name-ending /, add one.
-    if liberty_filepath.match(/[^\/]$/) then
-      liberty_filepath += "/"
+    if liberty_files.nil?
+      # If the path given doesn't have the folder-name-ending /, add one.
+      if liberty_dirpath.match(/[^\/]$/)
+        liberty_dirpath += "/"
+      end
+      # Get the list of Liberty files in the given folder.
+      if debug_mode 
+        puts "ls"
+      end
+      liberty_files = `ls -1 #{liberty_dirpath}*.lib` #.split("\n")
+      liberty_files = liberty_files.split("\n")
     end
-    # Get the list of Liberty files in the given folder.
-    if debug_mode 
-      puts "ls"
-    end
-    liberty_files = `ls -1 #{liberty_filepath}*.lib` #.split("\n")
-    liberty_files = liberty_files.split("\n")
     
     # Make a spot for Liberty data to be stored.
     liberty_data = Hash.new
@@ -949,86 +979,89 @@ def main(args)
       end
     end
 
+    ################################## LEF-LIB Compare
     # Compare data; run checks.
     missing_cells = Hash.new
     area_mismatch = Hash.new
     missing_pins = Hash.new
-    parsed_file.cells().keys().each do |cell|      
-      liberty_data.keys().each do |filename|
-        if liberty_data[filename][cell].nil?
-          # cell not found; mark as missing
-          if missing_cells[cell].nil?
-            missing_cells[cell] = Array.new
-          end
-          missing_cells[cell].push(filename)
-        else
-          # cell exists; check properties and pins
-          Liberty_Cell::properties().each do |liberty_cell_property|
-            if liberty_cell_property == "area"
-              # Find SIZE property in LEF file; compare against Liberty files' area properties
-              lef_cell_area = nil
-              liberty_cell_area = nil
-              parsed_file[cell].properties().each do |lef_cell_property|
-#								puts lef_cell_property
-#                lef_cell_property.match(/\s*SIZE\s+\d+\.\d*\s+BY\s+\d+\.\d*\s*;\s*/){ |m|
-                if lef_cell_property.split()[0].upcase() == "SIZE"
-                  lef_cell_dim = lef_cell_property.split()
-#									puts "found"
-#									puts lef_cell_dim
-									lef_cell_area = lef_cell_dim[1].to_f() * lef_cell_dim[3].to_f()
+    parsed_lef_files.each_pair { |lef_filename, parsed_lef_file|
+      parsed_lef_file.cells().keys().each do |cell|      
+        liberty_data.keys().each do |filename|
+          if liberty_data[filename][cell].nil?
+            # cell not found; mark as missing
+            if missing_cells[cell].nil?
+              missing_cells[cell] = Array.new
+            end
+            missing_cells[cell].push(filename)
+          else
+            # cell exists; check properties and pins
+            Liberty_Cell::properties().each do |liberty_cell_property|
+              if liberty_cell_property == "area"
+                # Find SIZE property in LEF file; compare against Liberty files' area properties
+                lef_cell_area = nil
+                liberty_cell_area = nil
+                parsed_lef_file[cell].properties().each do |lef_cell_property|
+  #								puts lef_cell_property
+  #                lef_cell_property.match(/\s*SIZE\s+\d+\.\d*\s+BY\s+\d+\.\d*\s*;\s*/){ |m|
+                  if lef_cell_property.split()[0].upcase() == "SIZE"
+                    lef_cell_dim = lef_cell_property.split()
+  #									puts "found"
+  #									puts lef_cell_dim
+                    lef_cell_area = lef_cell_dim[1].to_f() * lef_cell_dim[3].to_f()
+                  end
+                end
+                # TODO: investigate excessive output
+                puts liberty_data[filename][cell].searchedProperties()
+  #              puts liberty_data[filename][cell].property("area")
+                liberty_cell_area = liberty_data[filename][cell].property("area")
+                liberty_cell_area = liberty_cell_area.to_f()
+                if lef_cell_area.nil?
+                  puts "Error: SIZE property not found in LEF file for cell " + cell + "\n"
+                end
+                if liberty_cell_area.nil?
+                  puts "Error: AREA property not found in Liberty file "+ filename + " for cell " + cell + "\n"
+                end
+  #              puts lef_cell_area
+  #              puts liberty_cell_area
+                if lef_cell_area != liberty_cell_area
+                  if area_mismatch[cell].nil?
+                    area_mismatch[cell] = Array.new
+                  end
+                  area_mismatch[cell].push(filename)
                 end
               end
-              # TODO: investigate excessive output
-              puts liberty_data[filename][cell].searchedProperties()
-#              puts liberty_data[filename][cell].property("area")
-              liberty_cell_area = liberty_data[filename][cell].property("area")
-              liberty_cell_area = liberty_cell_area.to_f()
-              if lef_cell_area.nil?
-                puts "Error: SIZE property not found in LEF file for cell " + cell + "\n"
-              end
-              if liberty_cell_area.nil?
-                puts "Error: AREA property not found in Liberty file "+ filename + " for cell " + cell + "\n"
-              end
-#              puts lef_cell_area
-#              puts liberty_cell_area
-              if lef_cell_area != liberty_cell_area
-                if area_mismatch[cell].nil?
-                  area_mismatch[cell] = Array.new
+            end
+            
+            parsed_lef_file.cells()[cell].pins().keys().each do |pin|
+  #            puts pin
+  #            puts "liberty pins"
+              found = false
+              liberty_data[filename][cell].pins.each do |p|
+  #              puts p.name
+                if pin.upcase() == p.name.upcase()
+                  found = true
                 end
-                area_mismatch[cell].push(filename)
               end
-            end
-          end
-          
-          parsed_file.cells()[cell].pins().keys().each do |pin|
-#            puts pin
-#            puts "liberty pins"
-            found = false
-            liberty_data[filename][cell].pins.each do |p|
-#              puts p.name
-              if pin.upcase() == p.name.upcase()
-                found = true
-              end
-            end
 
-            if !found
-              if missing_pins[cell].nil?
-                missing_pins[cell] = Hash.new
-              end
-              if missing_pins[cell][pin].nil?
-                missing_pins[cell][pin] = Array.new
-              end
-              missing_pins[cell][pin].push(filename)
-            else
-              # pin exists; check properties
-              Liberty_Pin::properties().each do |liberty_pin_property|
+              if !found
+                if missing_pins[cell].nil?
+                  missing_pins[cell] = Hash.new
+                end
+                if missing_pins[cell][pin].nil?
+                  missing_pins[cell][pin] = Array.new
+                end
+                missing_pins[cell][pin].push(filename)
+              else
+                # pin exists; check properties
+                Liberty_Pin::properties().each do |liberty_pin_property|
 
+                end
               end
             end
           end
         end
       end
-    end
+    }
     if !(missing_cells.empty?)
       missing_cells.keys().each do |cell|
         liberty_missing_cell_msg = cell + ":\n"
@@ -1067,31 +1100,33 @@ def main(args)
     liberty_data.keys().each do |filename|
       liberty_data[filename].keys().each do |cell|
 #        puts cell
-        if parsed_file.cells()[cell].nil?
-          # Cell not found in LEF file.
-          if lef_missing_cells[cell].nil?
-            lef_missing_cells[cell] = Array.new
-          end
-          lef_missing_cells[cell].push(filename)
-#          puts cell
-#          puts lef_missing_cells[cell]
-        else
-          # Cell found; check pins.
-#          puts cell
-          liberty_data[filename][cell].pins()
-          liberty_data[filename][cell].pins().each do |pin|
-#            puts pin
-            if parsed_file[cell].pins()[pin.name().upcase()].nil?
-              if lef_missing_pins[cell].nil?
-                lef_missing_pins[cell] = Hash.new
+        parsed_lef_files.each_value { |parsed_lef_file|
+          if parsed_lef_file.cells()[cell].nil?
+            # Cell not found in LEF file.
+            if lef_missing_cells[cell].nil?
+              lef_missing_cells[cell] = Array.new
+            end
+            lef_missing_cells[cell].push(filename)
+  #          puts cell
+  #          puts lef_missing_cells[cell]
+          else
+            # Cell found; check pins.
+  #          puts cell
+            liberty_data[filename][cell].pins()
+            liberty_data[filename][cell].pins().each do |pin|
+  #            puts pin
+              if parsed_lef_file[cell].pins()[pin.name().upcase()].nil?
+                if lef_missing_pins[cell].nil?
+                  lef_missing_pins[cell] = Hash.new
+                end
+                if lef_missing_pins[cell][pin.name()].nil?
+                  lef_missing_pins[cell][pin.name()] = Array.new
+                end
+                lef_missing_pins[cell][pin.name()].push(filename)
               end
-              if lef_missing_pins[cell][pin.name()].nil?
-                lef_missing_pins[cell][pin.name()] = Array.new
-              end
-              lef_missing_pins[cell][pin.name()].push(filename)
             end
           end
-        end
+        }
       end
     end
     puts lef_missing_pins.keys()
@@ -1115,101 +1150,601 @@ def main(args)
     end
   end
 
-
+  ################################## Print file and errors
   # Print the file
-  output_filename = lefFilePath + "_sorted"
-  outFile = File.open(output_filename, "w")
-  parsed_file.print(outFile)
-  outFile.close()
-#  return  #uncomment will return before errors print for easier debugging
-  # If there are errors, print errors to file
-  error_file_opened = false
-  error_types = errors.keys()
-  error_file = nil
-  error_description = nil
-  error_header_end = "--------------------------------------------------------------\n"
-  error_footer =     "--------------------------------------------------------------\n"
-  error_types.each do |error_type|
-    if errors[error_type].length() > 0 then
-      if !error_file_opened then
-        error_filename = lefFilePath + "_errors"
-        error_file = File.open(error_filename, "w")
-        error_file_opened = true
-      end
-      error_description = "\nTest \'" + error_type.to_s() + "\' failed.\n"
-      if error_type == :line_ending_semicolons
-        error_description += "Warning: The following lines have improper lack of space before the ending semicolon.\n"
-        error_description += "These issues are fixed in " + output_filename + ".\n"
-      elsif error_type == :strange_origin
-        error_description += "Warning: The following cells have an unusual ORIGIN specified.\n"
-      elsif error_type == :strange_foreign
-        error_description += "Warning: The following cells have an unusual FOREIGN specified.\n"
-      elsif error_type == :missing_property_definitions
-        error_description += "Warning: The LEF file does not have any PROPERTYDEFINITIONS listed at the start of the file.\n"
-      elsif error_type == :missing_end_library_token
-        error_description += "Error: The LEF file does not contain an 'END LIBRARY' delimiter.\n"
-      elsif error_type == :mangled_cell_end
-        error_description += "Error: The following cells have non-matching end delimiters.\n"
-      elsif error_type == :missing_cell_end
-        error_description += "Error: The following cells are missing end delimiters.\n"
-      elsif error_type == :unknown_pin_property
-        error_description += "Warning: The following lines specify an unrecognized pin property.\n"
-      elsif error_type == :unknown_cell_property
-        error_description += "Warning: The following lines specify an unrecognized cell property.\n"
-      elsif error_type == :unknown_layer
-        error_description += "Warning: The following lines defined unrecognized layers.\n"
-      elsif error_type == :missing_origin
-        error_description += "Error: The following cells do not have an ORIGIN defined.\n"
-      elsif error_type == :missing_class
-        error_description += "Error: The following cells do not have a CLASS defined.\n"
-      elsif error_type == :strange_class
-        error_description += "Wraning: The following cells have an unusual CLASS defined.\n"
-      elsif error_type == :missing_site
-        error_description += "Error: The following cells do not have a SITE defined.\n"
-      elsif error_type == :strange_site
-        error_description += "Warning: The following cells have an unusual SITE defined.\n"
-      elsif error_type == :missing_size
-        error_description += "Error: The following cells do not have a SIZE defined.\n"
-      elsif error_type == :missing_symmetry
-        error_description += "Error: The following cells do not have a SYMMETRY defined.\n"
-      elsif error_type == :strange_symmetry
-        error_description += "Warning: The following cells have an unusual SYMMETRY defined.\n"
-      elsif error_type == :missing_direction
-        error_description += "Error: The following pins do not have a DIRECTION defined.\n"
-      elsif error_type == :strange_direction
-        error_description += "Warning: The following pins have an unusual DIRECTION defined.\n"
-      elsif error_type == :missing_use
-        error_description += "Error: The following pins do not have a USE defined.\n"
-      elsif error_type == :strange_use
-        error_description += "Warning: The following pins have an unusual USE defined.\n"
-      elsif error_type == :lef_missing_cell
-        error_description += "Error: The following cells were found in Liberty files, but not in the LEF file.\n"
-      elsif error_type == :lef_missing_pin
-        error_description += "Error: The following cells had the following pins defined in Liberty files, but not in the LEF file.\n"
-      elsif error_type == :liberty_missing_cell
-        error_description += "Error: The following cells were found in the LEF file, but not in the following Liberty files.\n"
-      elsif error_type == :liberty_missing_pin
-        error_description += "Error: The following cells had the following pins defined in the LEF file, but not in the following Liberty files.\n"
-      elsif error_type == :area_mismatch
-        error_description += "Error: The following cells had a SIZE property that was inconsistent with the AREA stated in the following Liberty files.\n"
-      end
-      
-      error_description += error_header_end
-      errors[error_type].each do |line|
-        error_description += line
-      end
-      error_description += error_footer
+  parsed_lef_files.each_pair { |lef_filename, parsed_lef_file|
+    output_filename = lef_filename + "_sorted"
+    outFile = File.open(output_filename, "w")
+    parsed_lef_file.print(outFile)
+    outFile.close()
+  #  return  #uncomment will return before errors print for easier debugging
+    # If there are errors, print errors to file
+    error_file_opened = false
+    error_types = errors.keys()
+    error_file = nil
+    error_description = nil
+    error_header_end = "--------------------------------------------------------------\n"
+    error_footer =     "--------------------------------------------------------------\n"
+    error_types.each do |error_type|
+      if errors[error_type].length() > 0 then
+        if !error_file_opened then
+          error_filename = lef_filename + "_errors"
+          error_file = File.open(error_filename, "w")
+          error_file_opened = true
+        end
+        error_description = "\nTest \'" + error_type.to_s() + "\' failed.\n"
+        if error_type == :line_ending_semicolons
+          error_description += "Warning: The following lines have improper lack of space before the ending semicolon.\n"
+          error_description += "These issues are fixed in " + output_filename + ".\n"
+        elsif error_type == :strange_origin
+          error_description += "Warning: The following cells have an unusual ORIGIN specified.\n"
+        elsif error_type == :strange_foreign
+          error_description += "Warning: The following cells have an unusual FOREIGN specified.\n"
+        elsif error_type == :missing_property_definitions
+          error_description += "Warning: The LEF file does not have any PROPERTYDEFINITIONS listed at the start of the file.\n"
+        elsif error_type == :missing_end_library_token
+          error_description += "Error: The LEF file does not contain an 'END LIBRARY' delimiter.\n"
+        elsif error_type == :mangled_cell_end
+          error_description += "Error: The following cells have non-matching end delimiters.\n"
+        elsif error_type == :missing_cell_end
+          error_description += "Error: The following cells are missing end delimiters.\n"
+        elsif error_type == :unknown_pin_property
+          error_description += "Warning: The following lines specify an unrecognized pin property.\n"
+        elsif error_type == :unknown_cell_property
+          error_description += "Warning: The following lines specify an unrecognized cell property.\n"
+        elsif error_type == :unknown_layer
+          error_description += "Warning: The following lines defined unrecognized layers.\n"
+        elsif error_type == :missing_origin
+          error_description += "Error: The following cells do not have an ORIGIN defined.\n"
+        elsif error_type == :missing_class
+          error_description += "Error: The following cells do not have a CLASS defined.\n"
+        elsif error_type == :strange_class
+          error_description += "Wraning: The following cells have an unusual CLASS defined.\n"
+        elsif error_type == :missing_site
+          error_description += "Error: The following cells do not have a SITE defined.\n"
+        elsif error_type == :strange_site
+          error_description += "Warning: The following cells have an unusual SITE defined.\n"
+        elsif error_type == :missing_size
+          error_description += "Error: The following cells do not have a SIZE defined.\n"
+        elsif error_type == :missing_symmetry
+          error_description += "Error: The following cells do not have a SYMMETRY defined.\n"
+        elsif error_type == :strange_symmetry
+          error_description += "Warning: The following cells have an unusual SYMMETRY defined.\n"
+        elsif error_type == :missing_direction
+          error_description += "Error: The following pins do not have a DIRECTION defined.\n"
+        elsif error_type == :strange_direction
+          error_description += "Warning: The following pins have an unusual DIRECTION defined.\n"
+        elsif error_type == :missing_use
+          error_description += "Error: The following pins do not have a USE defined.\n"
+        elsif error_type == :strange_use
+          error_description += "Warning: The following pins have an unusual USE defined.\n"
+        elsif error_type == :lef_missing_cell
+          error_description += "Error: The following cells were found in Liberty files, but not in the LEF file.\n"
+        elsif error_type == :lef_missing_pin
+          error_description += "Error: The following cells had the following pins defined in Liberty files, but not in the LEF file.\n"
+        elsif error_type == :liberty_missing_cell
+          error_description += "Error: The following cells were found in the LEF file, but not in the following Liberty files.\n"
+        elsif error_type == :liberty_missing_pin
+          error_description += "Error: The following cells had the following pins defined in the LEF file, but not in the following Liberty files.\n"
+        elsif error_type == :area_mismatch
+          error_description += "Error: The following cells had a SIZE property that was inconsistent with the AREA stated in the following Liberty files.\n"
+        end
+        
+        error_description += error_header_end
+        errors[error_type].each do |line|
+          error_description += line
+        end
+        error_description += error_footer
 
-      puts error_description
-      error_file.print error_description
-    else
-      puts "\nTest \'" + error_type.to_s() + "\' passed.\n"
+        puts error_description
+        error_file.print error_description
+      else
+        puts "\nTest \'" + error_type.to_s() + "\' passed.\n"
+      end
     end
-  end
-  if error_file_opened then
-    error_file.close()
-  end
+    if error_file_opened then
+      error_file.close()
+    end
+  }
 end
+
+# # old main 
+# def main(args)
+#   # TODO: 
+#   # add JSON support (trivial) (Josh)
+#   # tlef from Layer object, set class var of layers by a tlef file.           (Matt)
+#   # optionalize all functionality better.                                     (James)
+#   #   - add  wsdir and appropriate function call
+#   #   - ensure every action the program is taking is specified by an argument.
+#   # allow passing a ws_dir and intelligently search for tlef, lib, and lef    (Josh)
+#   #    ideal: `sortLefdata.rb -wsdir my_proj`
+#   # general: cleanup as you go                                                (All)
+#   #   - functionalize the code (<100 lines per function)
+#   #   - cleanup sysout
+#   #   - dont be stupid
+#   # 
+#   ################################## ARG PARSING
+#   # Parse command-line inputs. 
+#   next_token_is_liberty = false
+#   liberty_dirpath = nil
+#   next_token_is_layer_order = false
+#   layer_order = LayerCollection::layer_order
+#   debug_mode = false
+#   help_mode = false
+#   lefFilePath = nil
+#   proj_dir = nil
+#   while args.length() > 0
+#     next_arg = args.shift
+#     if next_token_is_liberty
+#       liberty_dirpath = next_arg
+#       next_token_is_liberty = false
+#     elsif next_token_is_layer_order
+#       layer_order = next_arg
+#       next_token_is_layer_order = false
+#     elsif next_arg.match(/^-l$/)
+#       next_token_is_liberty = true
+#     elsif next_arg.match(/^--liberty=/)
+#       next_arg.match(/^--liberty=(.*)$/){ |m| liberty_dirpath = m[1] }
+#     elsif next_arg.match(/^-o$/)
+#       next_token_is_layer_order = true
+#     elsif next_arg.match(/^--layer-order=/)
+#       next_arg.match(/^--layer-order=(.*)$/){ |m| layer_order = m[1] }
+#     elsif next_arg.match(/^--ws-dir=/)
+#       next_arg.match(/^--ws-dir=(\S+)/){|m| proj_dir = m[1]}
+#     elsif next_arg.match(/^-d$/)
+#       debug_mode = true
+#     elsif next_arg.match(/^--debug$/)
+#       debug_mode = true
+#     elsif next_arg.match(/^-h$/)
+#       help_mode = true
+#     elsif next_arg.match(/^--help$/)
+#       help_mode = true
+#     else
+#       lefFilePath = next_arg
+#     end
+#   end
+#   # If help is asked for or needed, print help message then abort.
+#   if (help_mode || lefFilePath.nil?) then
+#     puts "Reads a LEF file and sorts the data numerically within each shape for easier diff comparison"
+#     puts "Usage: sortLEFdata.rb lef_file [options]"
+#     puts "Options: "
+#     puts "\t-h"
+#     puts "\t--help"
+#     puts "\t\tPrints this help message, then aborts."
+#     puts "\t-l liberty_dirpath"
+#     puts "\t--liberty=liberty_dirpath"
+#     puts "\t\tCompares LEF contents to Liberty files at path liberty_dirpath."
+#     puts "\t\tDiscrepancies written to: lef_file_errors"
+#     puts "\t-o order_id"
+#     puts "\t--layer-order=order_id"
+#     puts "\t\tSets the layer order used when sorting."
+#     puts "\t\tAvaliable orderings:"
+#     puts "\t\t\ts40 [default] "
+#     puts "\t-d"
+#     puts "\t--debug"
+#     puts "\t\tPrints debug information to console."
+#     puts "Output: lef_file_sorted\n\n"
+#     abort
+#   end
+#   
+#   ################################## WS DIR Parsing
+#   # does the ws_dir parsing
+#   files_to_use_dict = nil
+#   unless proj_dir.nil?
+#     files_to_use_dict = ddc_scan_from_sysib(proj_dir) 
+#     lef_file_paths = files_to_use_dict['lef']
+#     lib_file_paths = files_to_use_dict['lib']
+#     tlef_file_path = files_to_use_dict['tlef']
+#   end
+#   # TODO: need to be able parse on multiple lefs and libs
+# 
+#   ################################## LEF Parsing
+#   # Set layer ordering
+#   LayerCollection::layer_order = layer_order
+#   
+#   # Read in the entire LEF file
+#   lefFile = File.open(lefFilePath,"r")
+#   lefLines = lefFile.readlines
+#   lefFile.close()
+# 
+#   # Strip comments from LEF file
+#   comment_lines = Array.new
+#   index = 0
+#   lefLines.each do |line|
+#     if line.match(/\#/)
+#       comment_lines.push("Line " + (index + 1).to_s() + ": " + line.chomp() + "\n")
+#       lefLines[index] = line.gsub(/\s*\#.*/, "")
+#     end
+#     index += 1
+#   end
+#   if !comment_lines.empty?
+#     comments_filename = lefFilePath + "_comments"
+#     comments_file = File.open(comments_filename, "w")
+#     comment_lines.each do |line|
+#       comments_file.write(line)
+#     end
+#     comments_file.close()
+#   end
+# 
+#   # Make an array to hold error messages
+#   errors = Hash.new
+#   errors[:line_ending_semicolons]       = Array.new
+#   
+#   errors[:missing_property_definitions] = Array.new
+#   errors[:missing_end_library_token]    = Array.new
+#   errors[:mangled_cell_end]             = Array.new
+#   errors[:missing_cell_end]             = Array.new
+#   errors[:unknown_pin_property]         = Array.new
+#   errors[:unknown_cell_property]        = Array.new
+#   errors[:unknown_layer]                = Array.new
+#   errors[:missing_origin]               = Array.new
+#   errors[:strange_origin]               = Array.new
+#   errors[:strange_foreign]              = Array.new
+#   errors[:missing_class]                = Array.new
+#   errors[:strange_class]                = Array.new
+#   errors[:missing_symmetry]             = Array.new
+#   errors[:strange_symmetry]             = Array.new
+#   errors[:missing_size]                 = Array.new
+#   errors[:missing_site]                 = Array.new
+#   errors[:strange_site]                 = Array.new
+#   errors[:missing_direction]            = Array.new
+#   errors[:strange_direction]            = Array.new
+#   errors[:missing_use]                  = Array.new
+#   errors[:strange_use]                  = Array.new
+#   
+#   # Parse the file
+#   parsed_file = LEF_File.new(lefLines, errors, debug_mode)
+#   parsed_file.sort!()
+#   
+#   ################################## Lib Parsing
+#   # If Liberty file-parsing is requested, parse Liberty files.
+#   unless liberty_dirpath.nil?
+#     errors[:lef_missing_cell] = Array.new
+#     errors[:lef_missing_pin] = Array.new
+#     errors[:liberty_missing_cell] = Array.new
+#     errors[:liberty_missing_pin] = Array.new
+#     errors[:area_mismatch] = Array.new
+#     # If the path given doesn't have the folder-name-ending /, add one.
+#     if liberty_dirpath.match(/[^\/]$/)
+#       liberty_dirpath += "/"
+#     end
+#     # Get the list of Liberty files in the given folder.
+#     if debug_mode 
+#       puts "ls"
+#     end
+#     liberty_files = `ls -1 #{liberty_dirpath}*.lib` #.split("\n")
+#     liberty_files = liberty_files.split("\n")
+#     
+#     # Make a spot for Liberty data to be stored.
+#     liberty_data = Hash.new
+# 
+#     # Declare all interesting properties to be scraped.
+#     cell_properties_of_interest = Array.new
+#     cell_properties_of_interest.push("area")
+#     pin_properties_of_interest = Array.new
+# 
+#     # For every file in the list:
+#     liberty_files.each do |filename|
+#       # TODO: area, pins, and directions (case sensitive)
+#       # Find all lines that declare the start of a cell.
+#       if debug_mode
+#         puts "grep1"
+#       end
+#       cell_lines_list = `grep -n "^\\s*cell\\s*(.*)\\s*{" #{filename}`
+#       cell_lines_list = cell_lines_list.split("\n")
+# 			#puts cell_lines_list
+#       cell_properties_lists = Hash.new
+#       # For every interesting cell property:
+#       cell_properties_of_interest.each do |cell_property|
+#         # Find all lines that define that property.
+#         if debug_mode
+#           puts "grep1.1"
+#         end
+# #				puts cell_properties_of_interest
+# #				puts filename.split("\n")[0]
+#         cell_properties_lists[cell_property] = `grep -n "^\\s*#{cell_property}\\s:" #{filename}`
+#         cell_properties_lists[cell_property] = cell_properties_lists[cell_property].split("\n")
+#       end
+#       # Find all lines that declare the start of a pin.
+#       if debug_mode
+#         puts "grep2"
+#       end
+#       pin_lines_list = `grep -n "^\\s*pin\\s*(.*)\\s*{" #{filename}`
+#       pin_lines_list = pin_lines_list.split("\n")
+# #      puts pin_lines_list[0]
+#       pin_properties_lists = Hash.new
+#       # For every interesting pin property:
+#       pin_properties_of_interest.each do |pin_property|
+#         # Find all lines that define that property.
+#         if debug_mode
+#           puts "grep3"
+#         end
+#         pin_properties_lists[pin_property] = `grep -n "^\\s*#{pin_property} :" #{filename}`
+#         pin_properties_lists[pin_property] = pin_properties_lists[pin_property].split("\n")
+#       end
+# 
+#       liberty_data[filename] = Hash.new
+#       
+#       # Using line number information, determine which properties belong to which cells and pins.
+#       while !(cell_lines_list.empty?)
+# #        puts "cell_lines_list"
+# #        puts cell_lines_list
+# #        puts "cell properties list"
+# #        puts cell_properties_lists["area"]
+# #        puts "pin lines list"
+# #        puts pin_lines_list
+# #        puts "pin properties list"
+# #        pin_properties_lists.keys.each { |line|
+# #          puts pin_properties_list[line]
+# #        }
+#         next_liberty_cell = Liberty_Cell.new(cell_lines_list, cell_properties_lists, pin_lines_list, pin_properties_lists)
+# #        puts next_liberty_cell.name()
+#         liberty_data[filename][next_liberty_cell.name()] = next_liberty_cell
+#       end
+#     end
+# 
+#     ################################## LEF-LIB Compare
+#     # Compare data; run checks.
+#     missing_cells = Hash.new
+#     area_mismatch = Hash.new
+#     missing_pins = Hash.new
+#     parsed_file.cells().keys().each do |cell|      
+#       liberty_data.keys().each do |filename|
+#         if liberty_data[filename][cell].nil?
+#           # cell not found; mark as missing
+#           if missing_cells[cell].nil?
+#             missing_cells[cell] = Array.new
+#           end
+#           missing_cells[cell].push(filename)
+#         else
+#           # cell exists; check properties and pins
+#           Liberty_Cell::properties().each do |liberty_cell_property|
+#             if liberty_cell_property == "area"
+#               # Find SIZE property in LEF file; compare against Liberty files' area properties
+#               lef_cell_area = nil
+#               liberty_cell_area = nil
+#               parsed_file[cell].properties().each do |lef_cell_property|
+# #								puts lef_cell_property
+# #                lef_cell_property.match(/\s*SIZE\s+\d+\.\d*\s+BY\s+\d+\.\d*\s*;\s*/){ |m|
+#                 if lef_cell_property.split()[0].upcase() == "SIZE"
+#                   lef_cell_dim = lef_cell_property.split()
+# #									puts "found"
+# #									puts lef_cell_dim
+# 									lef_cell_area = lef_cell_dim[1].to_f() * lef_cell_dim[3].to_f()
+#                 end
+#               end
+#               # TODO: investigate excessive output
+#               puts liberty_data[filename][cell].searchedProperties()
+# #              puts liberty_data[filename][cell].property("area")
+#               liberty_cell_area = liberty_data[filename][cell].property("area")
+#               liberty_cell_area = liberty_cell_area.to_f()
+#               if lef_cell_area.nil?
+#                 puts "Error: SIZE property not found in LEF file for cell " + cell + "\n"
+#               end
+#               if liberty_cell_area.nil?
+#                 puts "Error: AREA property not found in Liberty file "+ filename + " for cell " + cell + "\n"
+#               end
+# #              puts lef_cell_area
+# #              puts liberty_cell_area
+#               if lef_cell_area != liberty_cell_area
+#                 if area_mismatch[cell].nil?
+#                   area_mismatch[cell] = Array.new
+#                 end
+#                 area_mismatch[cell].push(filename)
+#               end
+#             end
+#           end
+#           
+#           parsed_file.cells()[cell].pins().keys().each do |pin|
+# #            puts pin
+# #            puts "liberty pins"
+#             found = false
+#             liberty_data[filename][cell].pins.each do |p|
+# #              puts p.name
+#               if pin.upcase() == p.name.upcase()
+#                 found = true
+#               end
+#             end
+# 
+#             if !found
+#               if missing_pins[cell].nil?
+#                 missing_pins[cell] = Hash.new
+#               end
+#               if missing_pins[cell][pin].nil?
+#                 missing_pins[cell][pin] = Array.new
+#               end
+#               missing_pins[cell][pin].push(filename)
+#             else
+#               # pin exists; check properties
+#               Liberty_Pin::properties().each do |liberty_pin_property|
+# 
+#               end
+#             end
+#           end
+#         end
+#       end
+#     end
+#     if !(missing_cells.empty?)
+#       missing_cells.keys().each do |cell|
+#         liberty_missing_cell_msg = cell + ":\n"
+#         missing_cells[cell].each do |filename|
+#           liberty_missing_cell_msg += "\t" + filename + "\n"
+#         end
+#         errors[:liberty_missing_cell].push(liberty_missing_cell_msg)
+#       end
+#     end
+#     if !(area_mismatch.empty?)
+#       area_mismatch_msg = ""
+#       area_mismatch.keys().each do |cell|
+#         area_mismatch_msg = cell + ":\n"
+#         area_mismatch[cell].each do |filename|
+#           area_mismatch_msg += "\t" + filename + "\n"
+#         end
+#       end
+#       errors[:area_mismatch].push(area_mismatch_msg)
+#     end
+#     if !(missing_pins.empty?)
+#       liberty_missing_pin_msg = ""
+#       missing_pins.keys().each do |cell|
+#         liberty_missing_pin_msg = cell + ":\n"
+#         missing_pins[cell].keys().each do |pin|
+#           liberty_missing_pin_msg += "\t" + pin + ":\n"
+#           missing_pins[cell][pin].each do |filename|
+#             liberty_missing_pin_msg += "\t\t" + filename + "\n" 
+#           end
+#         end
+#       end
+#       errors[:liberty_missing_pin].push(liberty_missing_pin_msg)
+#     end
+# 
+#     lef_missing_cells = Hash.new
+#     lef_missing_pins = Hash.new
+#     liberty_data.keys().each do |filename|
+#       liberty_data[filename].keys().each do |cell|
+# #        puts cell
+#         if parsed_file.cells()[cell].nil?
+#           # Cell not found in LEF file.
+#           if lef_missing_cells[cell].nil?
+#             lef_missing_cells[cell] = Array.new
+#           end
+#           lef_missing_cells[cell].push(filename)
+# #          puts cell
+# #          puts lef_missing_cells[cell]
+#         else
+#           # Cell found; check pins.
+# #          puts cell
+#           liberty_data[filename][cell].pins()
+#           liberty_data[filename][cell].pins().each do |pin|
+# #            puts pin
+#             if parsed_file[cell].pins()[pin.name().upcase()].nil?
+#               if lef_missing_pins[cell].nil?
+#                 lef_missing_pins[cell] = Hash.new
+#               end
+#               if lef_missing_pins[cell][pin.name()].nil?
+#                 lef_missing_pins[cell][pin.name()] = Array.new
+#               end
+#               lef_missing_pins[cell][pin.name()].push(filename)
+#             end
+#           end
+#         end
+#       end
+#     end
+#     puts lef_missing_pins.keys()
+#     lef_missing_cells.keys().each do |cell|
+# #			puts cell
+#       lef_missing_cells_msg = cell + ":\n"
+#       lef_missing_cells[cell].each do |filename|
+#         lef_missing_cells_msg += "\t" + filename + "\n"
+#       end
+#       errors[:lef_missing_cell].push(lef_missing_cells_msg)
+#     end
+#     lef_missing_pins.keys().each do |cell|
+#       lef_missing_pins_msg = cell + ":\n"
+#       lef_missing_pins[cell].keys().each do |pin|
+#         lef_missing_pins_msg += "\t" + pin + ":\n"
+#         lef_missing_pins[cell][pin].each do |filename|
+#           lef_missing_pins_msg += "\t\t" + filename + "\n"
+#         end
+#       end
+#       errors[:lef_missing_pin].push(lef_missing_pins_msg)
+#     end
+#   end
+# 
+#   ################################## Print file and errors
+#   # Print the file
+#   output_filename = lefFilePath + "_sorted"
+#   outFile = File.open(output_filename, "w")
+#   parsed_file.print(outFile)
+#   outFile.close()
+# #  return  #uncomment will return before errors print for easier debugging
+#   # If there are errors, print errors to file
+#   error_file_opened = false
+#   error_types = errors.keys()
+#   error_file = nil
+#   error_description = nil
+#   error_header_end = "--------------------------------------------------------------\n"
+#   error_footer =     "--------------------------------------------------------------\n"
+#   error_types.each do |error_type|
+#     if errors[error_type].length() > 0 then
+#       if !error_file_opened then
+#         error_filename = lefFilePath + "_errors"
+#         error_file = File.open(error_filename, "w")
+#         error_file_opened = true
+#       end
+#       error_description = "\nTest \'" + error_type.to_s() + "\' failed.\n"
+#       if error_type == :line_ending_semicolons
+#         error_description += "Warning: The following lines have improper lack of space before the ending semicolon.\n"
+#         error_description += "These issues are fixed in " + output_filename + ".\n"
+#       elsif error_type == :strange_origin
+#         error_description += "Warning: The following cells have an unusual ORIGIN specified.\n"
+#       elsif error_type == :strange_foreign
+#         error_description += "Warning: The following cells have an unusual FOREIGN specified.\n"
+#       elsif error_type == :missing_property_definitions
+#         error_description += "Warning: The LEF file does not have any PROPERTYDEFINITIONS listed at the start of the file.\n"
+#       elsif error_type == :missing_end_library_token
+#         error_description += "Error: The LEF file does not contain an 'END LIBRARY' delimiter.\n"
+#       elsif error_type == :mangled_cell_end
+#         error_description += "Error: The following cells have non-matching end delimiters.\n"
+#       elsif error_type == :missing_cell_end
+#         error_description += "Error: The following cells are missing end delimiters.\n"
+#       elsif error_type == :unknown_pin_property
+#         error_description += "Warning: The following lines specify an unrecognized pin property.\n"
+#       elsif error_type == :unknown_cell_property
+#         error_description += "Warning: The following lines specify an unrecognized cell property.\n"
+#       elsif error_type == :unknown_layer
+#         error_description += "Warning: The following lines defined unrecognized layers.\n"
+#       elsif error_type == :missing_origin
+#         error_description += "Error: The following cells do not have an ORIGIN defined.\n"
+#       elsif error_type == :missing_class
+#         error_description += "Error: The following cells do not have a CLASS defined.\n"
+#       elsif error_type == :strange_class
+#         error_description += "Wraning: The following cells have an unusual CLASS defined.\n"
+#       elsif error_type == :missing_site
+#         error_description += "Error: The following cells do not have a SITE defined.\n"
+#       elsif error_type == :strange_site
+#         error_description += "Warning: The following cells have an unusual SITE defined.\n"
+#       elsif error_type == :missing_size
+#         error_description += "Error: The following cells do not have a SIZE defined.\n"
+#       elsif error_type == :missing_symmetry
+#         error_description += "Error: The following cells do not have a SYMMETRY defined.\n"
+#       elsif error_type == :strange_symmetry
+#         error_description += "Warning: The following cells have an unusual SYMMETRY defined.\n"
+#       elsif error_type == :missing_direction
+#         error_description += "Error: The following pins do not have a DIRECTION defined.\n"
+#       elsif error_type == :strange_direction
+#         error_description += "Warning: The following pins have an unusual DIRECTION defined.\n"
+#       elsif error_type == :missing_use
+#         error_description += "Error: The following pins do not have a USE defined.\n"
+#       elsif error_type == :strange_use
+#         error_description += "Warning: The following pins have an unusual USE defined.\n"
+#       elsif error_type == :lef_missing_cell
+#         error_description += "Error: The following cells were found in Liberty files, but not in the LEF file.\n"
+#       elsif error_type == :lef_missing_pin
+#         error_description += "Error: The following cells had the following pins defined in Liberty files, but not in the LEF file.\n"
+#       elsif error_type == :liberty_missing_cell
+#         error_description += "Error: The following cells were found in the LEF file, but not in the following Liberty files.\n"
+#       elsif error_type == :liberty_missing_pin
+#         error_description += "Error: The following cells had the following pins defined in the LEF file, but not in the following Liberty files.\n"
+#       elsif error_type == :area_mismatch
+#         error_description += "Error: The following cells had a SIZE property that was inconsistent with the AREA stated in the following Liberty files.\n"
+#       end
+#       
+#       error_description += error_header_end
+#       errors[error_type].each do |line|
+#         error_description += line
+#       end
+#       error_description += error_footer
+# 
+#       puts error_description
+#       error_file.print error_description
+#     else
+#       puts "\nTest \'" + error_type.to_s() + "\' passed.\n"
+#     end
+#   end
+#   if error_file_opened then
+#     error_file.close()
+#   end
+# end
 
 class Liberty_Cell
   def self.properties()
@@ -1322,6 +1857,182 @@ def advance_to_line(arr, line_num)
     end
   end
 end
+
+#
+# Scanner for lefs, libs, and tlefs
+#
+class DdcScanner
+  #
+  # top level scan for the filetypes we are looking for
+  #
+  def self.scan_for_files(proj_dir)
+    ddc_dirs = scan_for_dirs(proj_dir)
+    dirs_with_files = Hash.new
+    ddc_dirs.each_pair{|dir, filetypes|
+      dirs_with_files[dir] = Hash.new
+      if filetypes.include?('pnr')
+        lef_files = scan_for_lef_files(dir)
+        dirs_with_files[dir]['lef'] = lef_files
+      end
+      if filetypes.include?('syn')
+        lib_files = scan_for_lib_files(dir)
+        dirs_with_files[dir]['lib'] = lib_files
+      end
+      if filetypes.include?('config')
+        conf_files = scan_for_tlef_files(dir)
+        dirs_with_files[dir]['tlef'] = conf_files
+      end
+    }
+    return dirs_with_files
+  end
+
+  #
+  # scans for directories expected to have lefs, libs and tlefs in it.
+  #
+  def self.scan_for_dirs(proj_dir)
+    find_pnr_cmd = [
+      "find",
+      "#{proj_dir}",
+      "-type d",
+      "-name 'pnr'"
+    ]
+    find_syn_cmd = [
+      "find",
+      "#{proj_dir}",
+      "-type d",
+      "-name 'syn'"
+    ]
+    find_conf_cmd = [
+      "find",
+      "#{proj_dir}",
+      "-type d",
+      "-name 'config'"
+    ]
+    # hash of arrays to tell us what resides under that directory
+    # should look like:
+    # { "fullpath" : ['syn', 'pnr'], "fullpath2": ['config'] }
+    ddc_dirs = Hash.new
+
+    find_dirs_with_cmd(find_pnr_cmd, ddc_dirs, "pnr")
+    find_dirs_with_cmd(find_syn_cmd, ddc_dirs, "syn")
+    find_dirs_with_cmd(find_conf_cmd, ddc_dirs, "config")
+
+    return ddc_dirs
+    
+  end # scan_for_dirs
+
+  #
+  # finds dirs with a find cmd and associates the parent dir with the given key
+  #
+  def self.find_dirs_with_cmd(find_cmd, ddc_dirs, key)
+    find_res = collect_io_results(find_cmd)
+    find_res.each { |dir|
+        parent = File.expand_path('..', dir)
+        if !ddc_dirs[parent].is_a?(Array)
+          ddc_dirs[parent] = Array.new
+        end
+        ddc_dirs[parent] << key
+    }
+  end # find_dirs_with_cmd
+
+  #
+  # scans acquired ddc dirs for lef files
+  #
+  def self.scan_for_lef_files(ddc_dir)
+    find_lef_cmd = [
+      "find",
+      "-L",
+      "#{ddc_dir}/pnr",
+      "-type f",
+      "-name '*.lef'"
+    ]
+    return collect_io_results(find_lef_cmd)
+  end # scan_for_lef_files
+
+  #
+  # scans acquired ddc dirs for lib files
+  #
+  def self.scan_for_lib_files(ddc_dir)
+    find_lib_cmd = [
+      "find",
+      "-L",
+      "#{ddc_dir}/syn",
+      "-type f",
+      "-name '*.lib'"
+    ]
+    return collect_io_results(find_lib_cmd)
+  end # scan_for_lib_files
+
+  #
+  # scans acquired ddc dirs for tlef files
+  #
+  def self.scan_for_tlef_files(projdir)
+    find_tlef_cmd = [
+      "find",
+      "-L",
+      "#{projdir}/config/tech/info",
+      "-type f",
+      "-name '*.tlef'", 
+      "-or",
+      "-name 'techlist.tf'"
+    ]
+    return collect_io_results(find_tlef_cmd)
+  end # scan_for_tlef_files
+
+  #
+  # execute a system command via IO and format it into array of output lines
+  #
+  def self.collect_io_results(cmd_opt_list)
+    cmd_str = cmd_opt_list.join(" ")
+    res_collection = Array.new
+    IO.popen(cmd_str) {|res_io|
+      res_io.readlines.each { |res_line|
+        res_collection << res_line.gsub("\n","")
+      }
+    }
+    return res_collection
+  end
+end # DdcScanner
+
+#
+# sysio wrapper for DdcScanner, takes in project directory for DdcScanner to work on
+#
+def ddc_scan_from_sysio(proj_dir)
+  ddc_dict = DdcScanner.scan_for_files(proj_dir)
+  output = ""
+  found_tlef = nil
+  count = 1
+  option_dict = Hash.new
+  ddc_dict.each_pair { |ddc_dir, file_types_dict|
+    if file_types_dict.key?("tlef")
+      if !found_tlef.nil? || file_types_dict['tlef'].length > 1
+        output << "WARNING: found multiple TLEFs, using the first one. Specify a TLEF in the args for specific one\n"
+      end
+      if file_types_dict['tlef'].length > 0
+        output << "Using tlef config from #{ddc_dir} : #{file_types_dict['tlef'].first}\n"
+        found_tlef = file_types_dict['tlef'].first
+      else
+        output << "WARNING: no TLEF found. Using default layer collections"
+      end
+      next
+    end
+    if file_types_dict.key?("lef")
+      if file_types_dict.key?("lib")
+        output << "#{count}. DDC: #{ddc_dir}, found #{file_types_dict['lef'].length} LEF files and #{file_types_dict['lib'].length} LIB files.\n"
+      else
+        output << "#{count}. DDC: #{ddc_dir}, only found #{file_types_dict['lef'].length} LEF files, no lib found.\n"
+      end
+      option_dict[count.to_s] = {"lef" => file_types_dict['lef'], "lib" => file_types_dict['lib'], 'tlef' => found_tlef}
+      count += 1 
+    end
+  }
+  puts output
+  option_choice = gets.strip
+  return option_dict[option_choice]
+  # puts option_dict[option_choice]
+end
+
+
 # this runs the program if it is called from 
 # command line.  
 if __FILE__ == $PROGRAM_NAME then 
