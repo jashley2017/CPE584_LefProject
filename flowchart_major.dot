@@ -1,33 +1,36 @@
 digraph sortLEFdata {
     ordering=out;
     size="12,8";
-    ratio=fill;
+    ratio=auto;
     rankdir=TB;
     style="invis";    
     concentrate=true;
-    node [fontname=Helvetica shape=record width=6];
+    node [fontname=Helvetica shape=record width=1];
 
     ###
     ###
     ###
-
-    GET_ARGS [label="{Get arguments|-l, --liberty\n-o\n-d, --debug\n-h, --help}"];
-    PROGRAM_MODE [
-        shape=plaintext
-        label=<
-            <table border="0" cellborder="1">
-                <tr>
-                    <td colspan="2">Program Mode</td>
-                </tr>
-                <tr>
-                    <td port='help'>Help</td>
-                    <td port='normal'>Normal</td>
-                </tr>
-            </table>
-        >
-    ];
-    # Help Mode
-    PRINT_USAGE [label="Print usage"];
+    {
+        rank=same;
+        GET_ARGS [label="{Get arguments|-l, --liberty\n-o\n-d, --debug\n-h, --help\n--wsdir}"];
+        PROGRAM_MODE [
+            shape=plaintext
+            label=<
+                <table border="0" cellborder="1">
+                    <tr>
+                        <td colspan="2" port='mode'>Program Mode</td>
+                    </tr>
+                    <tr>
+                        <td port='normal'>Normal</td>
+                        <td port='help'>Help</td>
+                    </tr>
+                </table>
+            >
+        ];
+        GET_ARGS -> PROGRAM_MODE;
+        PRINT_USAGE [label="Print usage"];
+    }
+    
 
     # Normal Mode
     READ_LEF [label="{Read LEF|Copy comments to another file\nRemove comments}"];    
@@ -39,8 +42,17 @@ digraph sortLEFdata {
     ###
     ###
     ###
+    {
+        rank=same;
+        READ_LEF;
+        PARSE_LEF;
+    }
+    {
+        rank=same;
+        SORT_MACRO;
+        LIB_TASKS;
+    }
 
-    GET_ARGS -> PROGRAM_MODE;
     PROGRAM_MODE:help
     -> PRINT_USAGE;
     PROGRAM_MODE:normal
