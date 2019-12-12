@@ -1,5 +1,4 @@
 #! /usr/bin/ruby -W0
-
 # Copyright (c) 2005 Cypress Semiconductor, Intl.
 # =FILE:   sortLEFdata.rb
 #
@@ -732,6 +731,36 @@ def get_next_line(file, index)
   return get_current_line(file, index)
 end
 
+class LibRuleChecker
+  #
+  # acquire the pin prop that matches the key and value from the lib cell
+  # does not check syntax of either side. expected that it would already be checked by other things.
+  #
+  def self.check_pin_value_in_lef(lib_path, lef_path, lef_pin, lib_pin, lib_pin_prop_key, cell)
+    errors = []
+    # localize lib components
+    lib_pin_name = lib_pin.name
+    lib_pin_prop = lib_pin.property(lib_pin_prop_key).upcase
+
+    # localize lef components
+    lef_prop_key = lib_pin_prop_key.upcase()
+    lef_prop_name_re = /^\s*#{lef_prop_key}(.*)/
+    lef_prop_val_re = /.*#{lib_pin_prop.gsub(/[\"\n;]/, '')}.*/
+
+    # check to see if property key is in this lef pin
+    lef_pin_prop_str = lef_pin.properties.select { |prop_str| !(prop_str =~ lef_prop_name_re).nil? }
+    unless lef_pin_prop_str.empty?
+      # if the property exists in the lef check its value
+      lef_pin_val_str = lef_pin_prop_str.select{|prop_str| !(prop_str =~ lef_prop_val_re).nil?}
+      if lef_pin_val_str.empty?
+        errors << "#{cell}\n\tFiles: #{lib_path}, #{lef_path}, \n\tPin: #{lib_pin_name}, \n\tProperty: #{lef_prop_key}\n"
+      end # if
+    end # unless
+    return errors
+  end
+end
+
+
 def main(args)
   # TODO: 
   # add JSON support (trivial) (Josh)
@@ -773,7 +802,7 @@ def main(args)
     elsif next_arg.match(/^--layer-order=/)
       next_arg.match(/^--layer-order=(.*)$/){ |m| layer_order = m[1] }
     elsif next_arg.match(/^--ws-dir=/)
-      next_arg.match(/^--ws-dir=(\S+)/){|m| proj_dir = m[1]}
+      proj_dir = next_arg.match(/^--ws-dir=(\S+)/)[1]
     elsif next_arg.match(/^-d$/)
       debug_mode = true
     elsif next_arg.match(/^--debug$/)
@@ -803,6 +832,8 @@ def main(args)
     puts "\t\tSets the layer order used when sorting."
     puts "\t\tAvaliable orderings:"
     puts "\t\t\ts40 [default] "
+    puts "\t--ws-dir=project_directory"
+    puts "\t\tScans project directory for LEF, Liberty, and Tech LEF files."
     puts "\t-d"
     puts "\t--debug"
     puts "\t\tPrints debug information to console."
@@ -896,6 +927,7 @@ def main(args)
     errors[:lef_missing_cell] = Array.new
     errors[:lef_missing_pin] = Array.new
     errors[:liberty_missing_cell] = Array.new
+    errors[:liberty_incorrect_pin_property] = Array.new
     errors[:liberty_missing_pin] = Array.new
     errors[:area_mismatch] = Array.new
     if liberty_files.nil?
@@ -918,6 +950,7 @@ def main(args)
     cell_properties_of_interest = Array.new
     cell_properties_of_interest.push("area")
     pin_properties_of_interest = Array.new
+    pin_properties_of_interest.push("direction")
 
     # For every file in the list:
     liberty_files.each do |filename|
@@ -945,7 +978,8 @@ def main(args)
       if debug_mode
         puts "grep2"
       end
-      pin_lines_list = `grep -n "^\\s*pin\\s*(.*)\\s*{" #{filename}`
+      
+      pin_lines_list = `egrep -n "^\\s*(pg_)?pin\\s*(\\(\\S+\\))\\s*{" #{filename}`
       pin_lines_list = pin_lines_list.split("\n")
 #      puts pin_lines_list[0]
       pin_properties_lists = Hash.new
@@ -1010,8 +1044,7 @@ def main(args)
                     lef_cell_area = lef_cell_dim[1].to_f() * lef_cell_dim[3].to_f()
                   end
                 end
-                # TODO: investigate excessive output
-                puts liberty_data[filename][cell].searchedProperties()
+  #              puts liberty_data[filename][cell].searchedProperties()
   #              puts liberty_data[filename][cell].property("area")
                 liberty_cell_area = liberty_data[filename][cell].property("area")
                 liberty_cell_area = liberty_cell_area.to_f()
@@ -1032,18 +1065,18 @@ def main(args)
               end
             end
             
-            parsed_lef_file.cells()[cell].pins().keys().each do |pin|
+            parsed_lef_file.cells()[cell].pins.each do |pin, pin_obj|
   #            puts pin
   #            puts "liberty pins"
-              found = false
+              matching_pin = nil
               liberty_data[filename][cell].pins.each do |p|
   #              puts p.name
                 if pin.upcase() == p.name.upcase()
-                  found = true
+                  matching_pin = p
                 end
               end
 
-              if !found
+              if matching_pin.nil?
                 if missing_pins[cell].nil?
                   missing_pins[cell] = Hash.new
                 end
@@ -1053,8 +1086,11 @@ def main(args)
                 missing_pins[cell][pin].push(filename)
               else
                 # pin exists; check properties
-                Liberty_Pin::properties().each do |liberty_pin_property|
-
+                Liberty_Pin::properties().each do |lib_pin_prop_key|
+                  errs = LibRuleChecker.check_pin_value_in_lef(lef_filename, filename, pin_obj, matching_pin, lib_pin_prop_key, cell)
+                  errs.each { |err|
+                    errors[:liberty_incorrect_pin_property].push(err)
+                  }
                 end
               end
             end
@@ -1166,7 +1202,7 @@ def main(args)
     error_header_end = "--------------------------------------------------------------\n"
     error_footer =     "--------------------------------------------------------------\n"
     error_types.each do |error_type|
-      if errors[error_type].length() > 0 then
+      unless errors[error_type].empty?
         if !error_file_opened then
           error_filename = lef_filename + "_errors"
           error_file = File.open(error_filename, "w")
@@ -1228,6 +1264,8 @@ def main(args)
           error_description += "Error: The following cells had the following pins defined in the LEF file, but not in the following Liberty files.\n"
         elsif error_type == :area_mismatch
           error_description += "Error: The following cells had a SIZE property that was inconsistent with the AREA stated in the following Liberty files.\n"
+        elsif error_type == :liberty_incorrect_pin_property
+          error_description += "Error: The following cells have mismtached values between LIB and LEF.\n" 
         end
         
         error_description += error_header_end
@@ -1281,7 +1319,7 @@ class Liberty_Cell
         end
       end
     end
-    if !(pin_start_lines.empty?)
+      if !(pin_start_lines.empty?)
       while (pin_start_lines[0].split(' ')[0].to_i() < next_cell_start_line_num)
 #        puts pin_start_lines
         next_pin = Liberty_Pin.new(pin_start_lines, pin_properties)
@@ -1313,13 +1351,19 @@ end
 
 class Liberty_Pin
   def self.properties()
-    return Array[]
+    return Array["direction"]
   end
   def initialize(pin_start_lines, pin_properties)
     @properties = Hash.new
     start_line = pin_start_lines.shift()
+    if pin_start_lines.empty? 
+      # pin_start_lines is now shifted into emptiness meaning you are in the last pin
+      end_of_pins = true
+    else 
+      end_of_pins = false
+    end
     start_line_num = start_line.split(' ')[0].to_i()
-    if !(pin_properties.empty?)
+    unless pin_properties.empty? || end_of_pins
       next_pin_start_line_num = pin_start_lines[0].split(' ')[0].to_i()
     end
 #    puts "line"
@@ -1331,7 +1375,7 @@ class Liberty_Pin
     @name = start_line.split(/\(|\)/)[1]
     Liberty_Pin::properties().each do |property|
       advance_to_line(pin_properties[property], start_line_num)
-      if pin_properties[property][0].split(' ')[0].to_i() < next_pin_start_line_num
+      if end_of_pins || pin_properties[property][0].split(' ')[0].to_i() < next_pin_start_line_num
         @properties[property] = pin_properties[property].shift().split(': ')[1]
       end
     end
