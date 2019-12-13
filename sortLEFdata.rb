@@ -14,6 +14,11 @@
 #   1.0   01/11/2018  JFE   First Check-in. starting from lef_area
 #   2.0   05/08/2019  JFE   From Spring 2019 VLSI class, major re-write 
 #
+require 'optparse'
+require 'logger'
+$log = Logger.new(STDOUT)
+$log.level = Logger::INFO
+
 
 class PBR_Int
   # wraps integer to ensure index does not get lost through function calls. 
@@ -25,10 +30,9 @@ class PBR_Int
 end
 
 class LEF_File
-  def initialize(file, errors, debug_mode)
+  def initialize(file, errors)
     index = PBR_Int.new
     @errors = errors
-    @debug_mode = debug_mode
     @header = Array.new
     @property_definitions = nil
     @cells = Hash.new
@@ -73,7 +77,7 @@ class LEF_File
       # it is out of the macro and then. This cell and its properties will be added 
       # to the total cells.
       if Cell::start_line?(line)
-        new_cell = Cell.new(file, index, errors, debug_mode)
+        new_cell = Cell.new(file, index, errors)
         @cells[new_cell.name] = new_cell
       else
         # at this level of parsing we should only see things that match cells.
@@ -144,7 +148,7 @@ class Cell
   def self.sites_found
     return @@sites_found
   end
-  def initialize(file, index, errors, debug_mode)
+  def initialize(file, index, errors)
     class_found = false
     origin_found = false
     size_found = false
@@ -159,10 +163,9 @@ class Cell
     @name = line.split()[1]
     #line.match(/^MACRO\s+([\w\d_]+)/) {|m| @name = m[1]}
     @errors = errors
-    @debug_mode = debug_mode
-    if(@debug_mode)then
-      puts "Cell: " + @name
-    end
+
+    $log.debug("Cell: " + @name)
+
     @properties = Array.new
     @keywordProperties = Array.new
     @pins = Hash.new
@@ -173,11 +176,11 @@ class Cell
       # until we get to the end of the MACRO, look for things we know
       if Pin::start_line?(line)
         # look for things that should be under the pins and add it to the pins of the Cell
-        new_pin = Pin.new(file, index, errors, debug_mode, @name)
+        new_pin = Pin.new(file, index, errors, @name)
         @pins[new_pin.name] = new_pin
       elsif LayerCollection::start_line?(line)
         # look for things under a layer collection and add it ot the obstructiosn of the Cell
-        new_obstruction = LayerCollection.new(file, index, errors, debug_mode)
+        new_obstruction = LayerCollection.new(file, index, errors)
         @obstructions = new_obstruction
       else
         if line.match(/\S;\s*$/)
@@ -239,9 +242,9 @@ class Cell
       end
       line = get_current_line(file, index)
     end
-    if(@debug_mode)then
-      puts (index.value + 1).to_s + ": END cell line " + line
-    end
+    
+      $log.debug((index.value + 1).to_s + ": END cell line " + line)
+
     # check to see if you have found all of the neccesary components of the Cell
     if !origin_found
       @errors[:missing_origin].push("Line " + @start_line_num.to_s() + ": " + @name + "\n")
@@ -354,7 +357,7 @@ class Pin
     end
     target_hash[property_key].push(message)
   end
-  def initialize(file, index, errors, debug_mode, parent_cell_name)
+  def initialize(file, index, errors, parent_cell_name)
     line = get_current_line(file, index)
     if !Pin::start_line?(line)
       raise "Error: Attempted to initialize Pin, but file location provided did not start at a Pin."
@@ -362,25 +365,24 @@ class Pin
     found_direction = false
     found_use = false
     @errors = errors
-    @debug_mode = debug_mode
     @start_line = line
     @start_line_num = index.value + 1
     @name = line.split(/PIN /)[1].chomp()
-    if(@debug_mode)then
-      puts "Pin: " + @name
-    end
+    
+    $log.debug("Pin: " + @name)
+      
     @properties = Array.new
     @keywordProperties = Array.new
     @ports = Array.new
     line = get_next_line(file, index)
     while !line.match(/^\s*END #{Regexp.quote(@name)}/)
       if LayerCollection::start_line?(line)
-        new_port = LayerCollection.new(file, index, errors, debug_mode)
+        new_port = LayerCollection.new(file, index, errors)
         @ports.push(new_port)
       else
-        if(@debug_mode)
-          puts (index.value + 1).to_s + ": found pin property " + line
-        end
+        
+        $log.debug((index.value + 1).to_s + ": found pin property " + line)
+        
         if line.match(/\S;\s*$/)
           error_msg = (index.value + 1).to_s + "\n"
           @errors[:line_ending_semicolons].push(error_msg)
@@ -474,21 +476,20 @@ class Layer
   def self.start_line?(line)
     return line.match(/^\s*LAYER/)
   end
-  def initialize(file, index, errors, debug_mode)
+  def initialize(file, index, errors)
     line = get_current_line(file, index)
     if !Layer::start_line?(line)
       raise "Error: Attempted to initialize Layer, but file location provided did not start at a Layer."
     end
     @errors = errors
-    @debug_mode = debug_mode
     @start_line = line
     @name = line.split(/LAYER /)[1]
     if !LayerCollection::recognized_layer?(@name)
       @errors[:unknown_layer].push("Line " + (index.value + 1).to_s() + ": " + line)
     end
-    if(@debug_mode)
-      puts (index.value + 1).to_s + ": found layer " + line
-    end
+    
+    $log.debug(puts (index.value + 1).to_s + ": found layer " + line)
+    
     if line.match(/\S;\s*$/)
       error_msg = (index.value + 1).to_s + "\n"
       @errors[:line_ending_semicolons].push(error_msg)
@@ -497,9 +498,9 @@ class Layer
 
     @coordinates = Array.new
     line = get_next_line(file, index)
-    if(@debug_mode)
-      puts (index.value + 1).to_s + ":" + line
-    end 
+    
+    $log.debug((index.value + 1).to_s + ":" + line)
+    
     until line.match(/(LAYER)|(END)/)
       if line.match(/\S;\s*$/)
         error_msg = (index.value + 1).to_s + "\n"
@@ -523,9 +524,9 @@ class Layer
       # Add coordinate to list.
       @coordinates.push(line)
       line = get_next_line(file, index)
-      if(@debug_mode)
-        puts (index.value + 1).to_s + ":" + line
-      end 
+      
+      $log.debug((index.value + 1).to_s + ":" + line)
+      
     end
   end
   def sort!()
@@ -608,7 +609,7 @@ class LayerCollection
   def self.recognized_layer?(name)
     return @@layer_orders[@@layer_order_selected].include?(name.split()[0])
   end
-  def initialize(file, index, errors, debug_mode)
+  def initialize(file, index, errors)
     line = get_current_line(file, index)
     if !LayerCollection::start_line?(line)
       raise "Error: Attempted to initialize Obstruction or Port, but file location provided did not start at an Obstruction or Port."
@@ -616,10 +617,9 @@ class LayerCollection
     @start_line = line
     @layers = Hash.new
     @errors = errors
-    @debug_mode = debug_mode
     line = get_next_line(file, index)
     while(Layer::start_line?(line))
-      new_layer = Layer.new(file, index, errors, debug_mode)
+      new_layer = Layer.new(file, index, errors)
       @layers[new_layer.name] = new_layer
       line = get_current_line(file, index)
     end
@@ -732,7 +732,8 @@ def get_next_line(file, index)
   return get_current_line(file, index)
 end
 
-def main(args)
+def main(opts)
+  $log.debug("main")
   # TODO: 
   # add JSON support (trivial) (Josh)
   # tlef from Layer object, set class var of layers by a tlef file.           (Matt)
@@ -745,73 +746,11 @@ def main(args)
   #   - functionalize the code (<100 lines per function)
   #   - cleanup sysout
   #   - dont be stupid
-  # 
-  ################################## ARG PARSING
-  # Parse command-line inputs. 
-  next_token_is_liberty = false
-  liberty_dirpath = nil
-  next_token_is_layer_order = false
-  layer_order = LayerCollection::layer_order
-  debug_mode = false
-  help_mode = false
-  lef_opt_filename = nil
-  proj_dir = nil
-  while args.length() > 0
-    next_arg = args.shift
-    if next_token_is_liberty
-      liberty_dirpath = next_arg
-      next_token_is_liberty = false
-    elsif next_token_is_layer_order
-      layer_order = next_arg
-      next_token_is_layer_order = false
-    elsif next_arg.match(/^-l$/)
-      next_token_is_liberty = true
-    elsif next_arg.match(/^--liberty=/)
-      next_arg.match(/^--liberty=(.*)$/){ |m| liberty_dirpath = m[1] }
-    elsif next_arg.match(/^-o$/)
-      next_token_is_layer_order = true
-    elsif next_arg.match(/^--layer-order=/)
-      next_arg.match(/^--layer-order=(.*)$/){ |m| layer_order = m[1] }
-    elsif next_arg.match(/^--ws-dir=/)
-      next_arg.match(/^--ws-dir=(\S+)/){|m| proj_dir = m[1]}
-    elsif next_arg.match(/^-d$/)
-      debug_mode = true
-    elsif next_arg.match(/^--debug$/)
-      debug_mode = true
-    elsif next_arg.match(/^-h$/)
-      help_mode = true
-    elsif next_arg.match(/^--help$/)
-      help_mode = true
-    else
-      lef_opt_filename = next_arg
-    end
-  end
-  # If help is asked for or needed, print help message then abort.
-  if (help_mode || (lef_opt_filename.nil? && proj_dir.nil?)) then
-    puts "Reads a LEF file and sorts the data numerically within each shape for easier diff comparison"
-    puts "Usage: sortLEFdata.rb lef_file [options]"
-    puts "Options: "
-    puts "\t-h"
-    puts "\t--help"
-    puts "\t\tPrints this help message, then aborts."
-    puts "\t-l liberty_dirpath"
-    puts "\t--liberty=liberty_dirpath"
-    puts "\t\tCompares LEF contents to Liberty files at path liberty_dirpath."
-    puts "\t\tDiscrepancies written to: lef_file_errors"
-    puts "\t-o order_id"
-    puts "\t--layer-order=order_id"
-    puts "\t\tSets the layer order used when sorting."
-    puts "\t\tAvaliable orderings:"
-    puts "\t\t\ts40 [default] "
-    puts "\t-d"
-    puts "\t--debug"
-    puts "\t\tPrints debug information to console."
-    puts "Output: lef_file_sorted\n\n"
-    abort
-  end
+  #   
   
   ################################## WS DIR Parsing
   # does the ws_dir parsing
+  proj_dir = opts.wsdir
   files_to_use_dict = nil
   liberty_files = nil
   lef_files = nil
@@ -826,6 +765,7 @@ def main(args)
 
   ################################## LEF Parsing
   # Set layer ordering
+  layer_order = LayerCollection::layer_order
   LayerCollection::layer_order = layer_order
   
   # Initialize array for the LEF parsing Errors
@@ -855,7 +795,7 @@ def main(args)
   errors[:strange_use]                  = Array.new
 
   # if we just have one lef specified by the options, use that
-  if  lef_files.nil? || lef_files.empty?
+  if lef_files.nil? || lef_files.empty?
     lef_files = [lef_opt_filename]
   end
   parsed_lef_files = Hash.new
@@ -886,7 +826,7 @@ def main(args)
 
     
     # Parse the file
-    parsed_lef_file = LEF_File.new(lefLines, errors, debug_mode)
+    parsed_lef_file = LEF_File.new(lefLines, errors)
     parsed_lef_file.sort!()
     parsed_lef_files[lef_file_path] = parsed_lef_file
   }
@@ -904,9 +844,7 @@ def main(args)
         liberty_dirpath += "/"
       end
       # Get the list of Liberty files in the given folder.
-      if debug_mode 
-        puts "ls"
-      end
+      $log.debug("ls")
       liberty_files = `ls -1 #{liberty_dirpath}*.lib` #.split("\n")
       liberty_files = liberty_files.split("\n")
     end
@@ -923,9 +861,7 @@ def main(args)
     liberty_files.each do |filename|
       # TODO: area, pins, and directions (case sensitive)
       # Find all lines that declare the start of a cell.
-      if debug_mode
-        puts "grep1"
-      end
+      $log.debug("grep1")
       cell_lines_list = `grep -n "^\\s*cell\\s*(.*)\\s*{" #{filename}`
       cell_lines_list = cell_lines_list.split("\n")
 			#puts cell_lines_list
@@ -933,18 +869,15 @@ def main(args)
       # For every interesting cell property:
       cell_properties_of_interest.each do |cell_property|
         # Find all lines that define that property.
-        if debug_mode
-          puts "grep1.1"
-        end
+        $log.debug("grep1.1")
 #				puts cell_properties_of_interest
 #				puts filename.split("\n")[0]
         cell_properties_lists[cell_property] = `grep -n "^\\s*#{cell_property}\\s:" #{filename}`
         cell_properties_lists[cell_property] = cell_properties_lists[cell_property].split("\n")
       end
       # Find all lines that declare the start of a pin.
-      if debug_mode
-        puts "grep2"
-      end
+      $log.debug("grep2")
+
       pin_lines_list = `grep -n "^\\s*pin\\s*(.*)\\s*{" #{filename}`
       pin_lines_list = pin_lines_list.split("\n")
 #      puts pin_lines_list[0]
@@ -952,9 +885,7 @@ def main(args)
       # For every interesting pin property:
       pin_properties_of_interest.each do |pin_property|
         # Find all lines that define that property.
-        if debug_mode
-          puts "grep3"
-        end
+        $log.debug("grep3")
         pin_properties_lists[pin_property] = `grep -n "^\\s*#{pin_property} :" #{filename}`
         pin_properties_lists[pin_property] = pin_properties_lists[pin_property].split("\n")
       end
@@ -1534,9 +1465,34 @@ def ddc_scan_from_sysio(proj_dir)
   # puts option_dict[option_choice]
 end
 
+begin
+  Struct.new("RuntimeOptions", :debug, :wsdir);
+  opts = Struct::RuntimeOptions.new(false, Dir.pwd)
+  parser = OptionParser.new do |o|
+    o.separator "Options:"
+    o.on("-w","--wsdir=WSDIR", "Provide working directory") do |wsdir|      
+      opts.wsdir = wsdir if Dir.exist? File.expand_path(wsdir)
+    end
+    o.on("-d","--debug", "Print debugging information") do
+      opts.debug = true
+      $log.level = Logger::DEBUG
+    end
+    o.on_tail("-h", "--help", "Print help") do
+      puts parser
+      exit! 0
+    end
+  end
+  begin parser.parse!
+  rescue => e
+    puts e.message
+    puts parser
+    exit! 1
+  end
 
-# this runs the program if it is called from 
-# command line.  
-if __FILE__ == $PROGRAM_NAME then 
-  main(ARGV)
+  main(opts)
+
+rescue Exception => e
+  $log.fatal e.message
+  exit! 1
 end
+
