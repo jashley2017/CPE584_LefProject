@@ -1,0 +1,64 @@
+digraph sortLEFdata {
+    ordering=out;
+    size="12,8";
+    ratio=auto;
+    rankdir=TB;
+    style="invis";    
+    concentrate=true;
+    node [fontname=Helvetica shape=record width=1];
+
+    ###
+    ###
+    ###
+    {
+        rank=same;
+        GET_ARGS [label="{Get arguments|-l, --liberty\n-o\n-d, --debug\n-h, --help\n--wsdir}"];
+        PROGRAM_MODE [
+            shape=plaintext
+            label=<
+                <table border="0" cellborder="1">
+                    <tr>
+                        <td colspan="2" port='mode'>Program Mode</td>
+                    </tr>
+                    <tr>
+                        <td port='normal'>Normal</td>
+                        <td port='help'>Help</td>
+                    </tr>
+                </table>
+            >
+        ];
+        GET_ARGS -> PROGRAM_MODE;
+        PRINT_USAGE [label="Print usage"];
+    }
+    
+
+    # Normal Mode
+    READ_LEF [label="{Read LEF|Copy comments to another file\nRemove comments}"];    
+    PARSE_LEF [label="Parse LEF"];
+    SORT_MACRO [label="{Sort LEF Properties|LEF\nCELL\nPIN}"];
+    LIB_TASKS [label="{LIB Tasks|Find lines with cell\nFind lines with pin\nAttribute pin to preceding cell\nVerify cells between LEF and LIB\nVerify pins between LEF and LIB\nVerify SIZE in LEF matches AREA in LIB}"];
+    ERRORS [label="{Print errors|Line ending with semicolons\nNon-zero ORIGIN properties\nNon-zero FOREIGN properties\nMissing PROPERTYDEFINITIONS\nLEF ended before \"END LIBRARY\"\nLEF MACRO END not matching MACRO name\nLEF MACRO missing END\nFound unrecognized pin properties\nFound unrecognized cell properties\nFound unrecognized layer name\nMissing ORIGIN in cell\nMissing CLASS in cell\nUncommon CLASS used (workaround?)\nMissing SITE in cell\nUncommon SITE used (workaround?)\nMissing SIZE in cell\nMissing SYMMETRY in cell\nUncommon SYMMETRY used (workaround?)\nMissing DIRECTION in cell\nUncommon DIRECTION used (workaround?)\nMissing USE in cell\nUncommon USE used (workaround?)\nCells missing from LEF that are in LIB\nPins missing from LEF that are in LIB\nCells missing from LIB that are in LEF\nPins missing from LIB that are in LEF\nLIB AREA disagrees with LEF SIZE}"];
+
+    ###
+    ###
+    ###
+    {
+        rank=same;
+        READ_LEF;
+        PARSE_LEF;
+    }
+    {
+        rank=same;
+        SORT_MACRO;
+        LIB_TASKS;
+    }
+
+    PROGRAM_MODE:help
+    -> PRINT_USAGE;
+    PROGRAM_MODE:normal
+    -> READ_LEF
+    -> PARSE_LEF
+    -> SORT_MACRO
+    -> LIB_TASKS
+    -> ERRORS;
+}

@@ -1,0 +1,114 @@
+FLOWCHART
+
+* Get arguments
+  * -l, --liberty
+  * -o
+  * -d, --debug
+  * -h, --help
+
+1. Help mode
+    * Print usage
+    * Exit
+
+2. Normal mode
+    * Setup layers
+    * Read LEF file
+        * Copy comments to another file
+        * Remove comments
+    * Setup error data structure (Ruby Hash)
+    * Parse LEF file
+        * Skip lines looking for header "PROPERTYDEFINITIONS" or "MACRO"
+            * If "MACRO" before "PROPERTYDEFINITIONS" store error
+        1. PROPERTYDEFINITIONS
+            * Read a line
+            * Save line to property_definitions
+            * LOOP until "END PROPERTYDEFINITIONS" found
+        2. MACRO
+            * Parse MACRO Cell
+                * Read a line
+                1. Pin
+                    * Read a line
+                    1. Layer (link to Layer outside)
+                    2. Port 
+                        * Look for keyword PROPERTY
+                        * Check property type
+                            * TAPERRULE
+                            * DIRECTION
+                            * USE
+                            * NETEXPR
+                            * SUPPLYSENSITIVITY
+                            * GROUNDSENSITIVITY
+                            * SHAPE
+                            * MUSTJOIN
+                            * ANTENNAPARTIALMETALAREA
+                            * ANTENNAPARTIALMETALSIDEAREA
+                            * ANTENNAPARTIALCUTAREA
+                            * ANTENNADIFFAREA
+                            * ANTENNAMODEL
+                            * ANTENNAGATEAREA
+                            * ANTENNAMAXAREACAR
+                            * ANTENNAMAXSIDEAREACAR
+                            * ANTENNAMAXCUTCAR
+                        * LOOP until "END PIN"
+                        * Store error for missing DIRECTION or USE
+                2. Layer
+                    * Read a line
+                    * Check if layer is among list of built-in layer types
+                        * LP_HVTP
+                        * LP_HVTN
+                        * CONT
+                        * ME1
+                        * VI1
+                        * ME2
+                        * VI2
+                        * ME3
+                * Look for keyword PROPERTY
+                    * Record which PROPERTY type
+                        * ORIGIN
+                        * FOREIGN
+                        * CLASS
+                        * SIZE
+                        * SYMMETRY
+                        * SITE
+                * LOOP until "END CELL"
+                * Store error for each missing property
+            * LOOP until EOF
+            * Look for rare property_definitions (workaround for not supporting properties?)
+    * Sort the properties recorded by MACRO name, then internal property name
+    * If liberty file is to be read, collect all files under provided directory
+        * Find all lines that declare a cell
+        * Find all lines that declare a pin
+        * Assume that all pins belong to the preceding cell (by line count)
+        * Verify that every cell declared in the LEF was found in the LIBs
+            * Verify that the SIZE in LEF agrees with the AREA in LIBs
+        * Verify that every pin declared in the LEF was found in the LIBs
+    * Step through all the error handling
+        * Line ending with semicolons
+        * Non-zero ORIGIN properties
+        * Non-zero FOREIGN properties
+        * Missing PROPERTYDEFINITIONS
+        * LEF ended before "END LIBRARY"
+        * LEF MACRO END not matching MACRO name
+        * LEF MACRO missing END
+        * Found unrecognized pin properties
+        * Found unrecognized cell properties
+        * Found unrecognized layer name
+        * Missing ORIGIN in cell
+        * Missing CLASS in cell
+        * Uncommon CLASS used (workaround?)
+        * Missing SITE in cell
+        * Uncommon SITE used (workaround?)
+        * Missing SIZE in cell
+        * Missing SYMMETRY in cell
+        * Uncommon SYMMETRY used (workaround?)
+        * Missing DIRECTION in cell
+        * Uncommon DIRECTION used (workaround?)
+        * Missing USE in cell
+        * Uncommon USE used (workaround?)
+        * Cells missing from LEF that are in LIB
+        * Pins missing from LEF that are in LIB
+        * Cells missing from LIB that are in LEF
+        * Pins missing from LIB that are in LEF
+        * LIB AREA disagrees with LEF SIZE
+
+
