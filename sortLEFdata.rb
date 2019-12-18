@@ -487,7 +487,7 @@ class Layer
       @errors[:unknown_layer].push("Line " + (index.value + 1).to_s() + ": " + line)
     end
     
-    $log.debug(puts (index.value + 1).to_s + ": found layer " + line)
+    $log.debug((index.value + 1).to_s + ": found layer " + line)
     
     if line.match(/\S;\s*$/)
       error_msg = (index.value + 1).to_s + "\n"
@@ -778,6 +778,7 @@ def main(opts)
   ################################## WS DIR Parsing
   # does the ws_dir parsing
   proj_dir = opts.wsdir
+  liberty_dirpath = opts.libdir
   files_to_use_dict = nil
   liberty_files = nil
   lef_files = nil
@@ -866,17 +867,16 @@ def main(opts)
     errors[:liberty_incorrect_pin_property] = Array.new
     errors[:liberty_missing_pin] = Array.new
     errors[:area_mismatch] = Array.new
-    if liberty_files.nil?
-      # If the path given doesn't have the folder-name-ending /, add one.
+
+    # If the path given doesn't have the folder-name-ending /, add one.
+    unless liberty_dirpath.nil?
       if liberty_dirpath.match(/[^\/]$/)
         liberty_dirpath += "/"
       end
       # Get the list of Liberty files in the given folder.
       $log.debug("ls")
-      liberty_files = `ls -1 #{liberty_dirpath}*.lib` #.split("\n")
-      liberty_files = liberty_files.split("\n")
+      liberty_files.concat(`ls -1 #{liberty_dirpath}*.lib`.split("\n")) #.split("\n")
     end
-    
     # Make a spot for Liberty data to be stored.
     liberty_data = Hash.new
 
@@ -1504,8 +1504,8 @@ def ddc_scan_from_sysio(proj_dir)
 end
 
 begin
-  Struct.new("RuntimeOptions", :debug, :wsdir, :tlef);
-  opts = Struct::RuntimeOptions.new(false, Dir.pwd, nil)
+  RuntimeOptions = Struct.new(:debug, :wsdir, :tlef, :libdir)
+  opts = RuntimeOptions.new(false, Dir.pwd, nil, nil)
   parser = OptionParser.new do |o|
     o.separator "Options:"
     o.on("-w","--wsdir=WSDIR", "Specify working directory") do |wsdir|  
@@ -1518,6 +1518,9 @@ begin
     o.on("-d","--debug", "Print debugging information") do
       opts.debug = true
       $log.level = Logger::DEBUG
+    end
+    o.on("-l", "--liberty=LIBERTY", "Specify liberty file directory.") do |libdir|
+      opts.libdir = libdir
     end
     o.on("-t TLEF", "Specify path to technology LEF") do |tlef|
       if File.exist? File.expand_path(tlef) then
