@@ -820,8 +820,13 @@ class LibRuleChecker
     errors = []
     # localize lib components
     lib_pin_name = lib_pin.name
-    lib_pin_prop = lib_pin.property(lib_pin_prop_key).upcase
-
+    lib_pin_prop = lib_pin.property(lib_pin_prop_key)
+    if lib_pin_prop.nil?
+      errors << "#{cell}\n\tFiles: #{lib_path}, #{lef_path}, \n\tPin: #{lib_pin_name}, \n\tProperty: #{lib_pin_prop_key}, Property in LIB is NIL\n"
+      return errors
+    else 
+      lib_pin_prop = lib_pin_prop.upcase
+    end
     # localize lef components
     lef_prop_key = lib_pin_prop_key.upcase()
     lef_prop_name_re = /^\s*#{lef_prop_key}(.*)/
