@@ -681,7 +681,7 @@ class LayerCollection
   #         uses the default.
   def self.use_tlef_layers(new_layers)
     new_layer_order = "from_tlef"
-    @@layer_orders[new_layer_order] = new_layer_orders
+    @@layer_orders[new_layer_order] = new_layers
     @@layer_order_selected = new_layer_order
   end
 
@@ -1629,7 +1629,7 @@ def get_layers_from_tlef(tlef_fn)
     #must be tlef file
     new_tlef_object = TLEF_File.new(tlef_fn)
     new_tlef_object.tlef_parse()
-    return new_tf_object.layers()
+    return new_tlef_object.layers()
   end
 end
 
