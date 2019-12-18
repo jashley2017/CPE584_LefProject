@@ -1509,7 +1509,7 @@ begin
   parser = OptionParser.new do |o|
     o.separator "Options:"
     o.on("-w","--wsdir=WSDIR", "Specify working directory") do |wsdir|  
-      if Dir.exist? File.expand_path(wsdir) do
+      if File.directory? File.expand_path(wsdir) then
         opts.wsdir = wsdir
       else
         raise "#{wsdir}: Directory not accessible"
@@ -1520,7 +1520,7 @@ begin
       $log.level = Logger::DEBUG
     end
     o.on("-t TLEF", "Specify path to technology LEF") do |tlef|
-      if File.exist? File.expand_path(tlef) do
+      if File.exist? File.expand_path(tlef) then
         opts.tlef = tlef
       else
         raise "#{tlef}: File not accessible"
@@ -1537,9 +1537,7 @@ begin
     puts parser
     exit! 1
   end
-
   main(opts)
-
 rescue Exception => e
   $log.fatal e.message
   exit! 1
