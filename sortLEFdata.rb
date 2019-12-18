@@ -895,7 +895,7 @@ def main(opts)
  ################################# mtmi233: edit layer ordering
   if tlef_files
     new_layers = get_layers_from_tlef(tlef_files.first)
-    LayerCollections::use_tlef_layers(new_layers)
+    LayerCollection::use_tlef_layers(new_layers)
   end
   
   # Initialize array for the LEF parsing Errors
@@ -1555,7 +1555,7 @@ class DdcScanner
       "-type f",
       "-name '*.tlef'", 
       "-or",
-      "-name 'techlist.tf'"
+      "-name 'techfile.tf'"
     ]
     return collect_io_results(find_tlef_cmd)
   end # scan_for_tlef_files
