@@ -1504,16 +1504,27 @@ def ddc_scan_from_sysio(proj_dir)
 end
 
 begin
-  Struct.new("RuntimeOptions", :debug, :wsdir);
-  opts = Struct::RuntimeOptions.new(false, Dir.pwd)
+  Struct.new("RuntimeOptions", :debug, :wsdir, :tlef);
+  opts = Struct::RuntimeOptions.new(false, Dir.pwd, nil)
   parser = OptionParser.new do |o|
     o.separator "Options:"
-    o.on("-w","--wsdir=WSDIR", "Provide working directory") do |wsdir|      
-      opts.wsdir = wsdir if Dir.exist? File.expand_path(wsdir)
+    o.on("-w","--wsdir=WSDIR", "Specify working directory") do |wsdir|  
+      if Dir.exist? File.expand_path(wsdir) do
+        opts.wsdir = wsdir
+      else
+        raise "#{wsdir}: Directory not accessible"
+      end
     end
     o.on("-d","--debug", "Print debugging information") do
       opts.debug = true
       $log.level = Logger::DEBUG
+    end
+    o.on("-t TLEF", "Specify path to technology LEF") do |tlef|
+      if File.exist? File.expand_path(tlef) do
+        opts.tlef = tlef
+      else
+        raise "#{tlef}: File not accessible"
+      end
     end
     o.on_tail("-h", "--help", "Print help") do
       puts parser
