@@ -903,8 +903,9 @@ def main(opts)
   layer_order = LayerCollection::layer_order
   LayerCollection::layer_order = layer_order
 
-  ################################# mtmi233: edit layer ordering
-  if tlef_files
+  ################################# mtmi233: edit layer orderin 
+  # if tlef_files
+  # #
     new_layers = get_layers_from_tlef(tlef_files.first)
     LayerCollections::set_layer_orders(new_layers)
   end
