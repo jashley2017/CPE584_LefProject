@@ -853,6 +853,8 @@ class LibRuleChecker
   end
 end
 
+#####################################################
+#return layers array from either tlef or tf file
 def get_layers_from_tlef(tlef_fn)
   if tlef_fn.match(/\.tf/)
     new_tf_object = TF_File.new(tlef_fn)
