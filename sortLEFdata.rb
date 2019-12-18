@@ -276,19 +276,6 @@ class Cell
         if split_line[0] == "PROPERTY"
           @keywordProperties.push(line)
         else
-          # TODO: can easily be a case
-          # key_line = split_line[0]
-          # case key_line
-          #   where "FOREIGN"
-          #   where "ORIGIN"
-          #   where "CLASS"
-          #   where "SIZE"
-          #   where "SYMMETRY"
-          #   where "SITE"
-          #   else
-          #     # check for the other PropertyOrders here
-          # end
-          # \@properties.push(line)
           if split_line[0] == "ORIGIN"
             origin_found = true
             if split_line[1] != "0" || split_line[2] != "0" then
@@ -452,7 +439,7 @@ class Pin
     @start_line_num = index.value + 1
     @name = line.split(/PIN /)[1].chomp()
     
-    $log.debug("Pin: " + @name)/
+    $log.debug("Pin: " + @name)
       
     @properties = Array.new
     @keywordProperties = Array.new
@@ -1205,7 +1192,7 @@ def main(opts)
         }
       end
     end
-    puts lef_missing_pins.keys()
+    # puts lef_missing_pins.keys()
     lef_missing_cells.keys().each do |cell|
 #			puts cell
       lef_missing_cells_msg = cell + ":\n"
@@ -1253,9 +1240,12 @@ def main(opts)
           error_description += "Warning: The following lines have improper lack of space before the ending semicolon.\n"
           error_description += "These issues are fixed in " + output_filename + ".\n"
         elsif error_type == :strange_origin
-          error_description += "Warning: The following cells have an unusual ORIGIN specified.\n"
+          # error_description += "Warning: The following cells have an unusual ORIGIN specified.\n"
+          # ^ this is a dumb error
+          next
         elsif error_type == :strange_foreign
-          error_description += "Warning: The following cells have an unusual FOREIGN specified.\n"
+          # error_description += "Warning: The following cells have an unusual FOREIGN specified.\n"
+          next
         elsif error_type == :missing_property_definitions
           error_description += "Warning: The LEF file does not have any PROPERTYDEFINITIONS listed at the start of the file.\n"
         elsif error_type == :missing_end_library_token
@@ -1275,25 +1265,30 @@ def main(opts)
         elsif error_type == :missing_class
           error_description += "Error: The following cells do not have a CLASS defined.\n"
         elsif error_type == :strange_class
-          error_description += "Wraning: The following cells have an unusual CLASS defined.\n"
+          # error_description += "Warning: The following cells have an unusual CLASS defined.\n"
+          next
         elsif error_type == :missing_site
           error_description += "Error: The following cells do not have a SITE defined.\n"
         elsif error_type == :strange_site
-          error_description += "Warning: The following cells have an unusual SITE defined.\n"
+          # error_description += "Warning: The following cells have an unusual SITE defined.\n"
+          next
         elsif error_type == :missing_size
           error_description += "Error: The following cells do not have a SIZE defined.\n"
         elsif error_type == :missing_symmetry
           error_description += "Error: The following cells do not have a SYMMETRY defined.\n"
         elsif error_type == :strange_symmetry
-          error_description += "Warning: The following cells have an unusual SYMMETRY defined.\n"
+          # error_description += "Warning: The following cells have an unusual SYMMETRY defined.\n"
+          next
         elsif error_type == :missing_direction
           error_description += "Error: The following pins do not have a DIRECTION defined.\n"
         elsif error_type == :strange_direction
-          error_description += "Warning: The following pins have an unusual DIRECTION defined.\n"
+          # error_description += "Warning: The following pins have an unusual DIRECTION defined.\n"
+          next
         elsif error_type == :missing_use
           error_description += "Error: The following pins do not have a USE defined.\n"
         elsif error_type == :strange_use
-          error_description += "Warning: The following pins have an unusual USE defined.\n"
+          # error_description += "Warning: The following pins have an unusual USE defined.\n"
+          next
         elsif error_type == :lef_missing_cell
           error_description += "Error: The following cells were found in Liberty files, but not in the LEF file.\n"
         elsif error_type == :lef_missing_pin
@@ -1631,7 +1626,7 @@ def get_layers_from_tlef(tlef_fn)
     new_tlef_object.tlef_parse()
     return new_tf_object.layers()
   end
-
+end
 
 begin
   RuntimeOptions = Struct.new(:debug, :wsdir, :tlef, :libdir)
@@ -1671,16 +1666,11 @@ begin
     exit! 1
   end
 
-# this runs the program if it is called from 
-# command line.  
-if __FILE__ == $PROGRAM_NAME then 
- main(ARGV)
-  main(opts)
-
-end
+main(opts)
 
 rescue Exception => e
-  $log.fatal e.message
+  # $log.fatal e.message
+  raise
   exit! 1
 end
 
