@@ -65,7 +65,7 @@ class TLEF_File
       
   end
 
-  def get_layers_list()
+  def layers()
       return @tlef_layers.keys
   end
 
@@ -108,7 +108,6 @@ class TLEF_File
               end
           end
       }
-
   end
 
 end
@@ -453,7 +452,7 @@ class Pin
     @start_line_num = index.value + 1
     @name = line.split(/PIN /)[1].chomp()
     
-    $log.debug("Pin: " + @name)
+    $log.debug("Pin: " + @name)/
       
     @properties = Array.new
     @keywordProperties = Array.new
@@ -690,6 +689,16 @@ class LayerCollection
   def self.layer_order()
     return @@layer_order_selected
   end
+
+  ######################################################################################
+  #mtmi233: changes layer orders in the event that a tlef/tf file is found, otherwise
+  #         uses the default.
+  def self.use_tlef_layers(new_layers)
+    new_layer_order = "from_tlef"
+    @@layer_orders[new_layer_order] = new_layer_orders
+    @@layer_order_selected = new_layer_order
+  end
+
   def self.recognized_layer?(name)
     return @@layer_orders[@@layer_order_selected].include?(name.split()[0])
   end
@@ -839,10 +848,24 @@ class LibRuleChecker
       lef_pin_val_str = lef_pin_prop_str.select{|prop_str| !(prop_str =~ lef_prop_val_re).nil?}
       if lef_pin_val_str.empty?
         errors << "#{cell}\n\tFiles: #{lib_path}, #{lef_path}, \n\tPin: #{lib_pin_name}, \n\tProperty: #{lef_prop_key}\n"
-      end # if
+      end 
     end # unless
     return errors
   end
+end
+
+def get_layers_from_tlef(tlef_fn)
+  if tlef_fn.match(/\.tf/)
+    new_tf_object = TF_File.new(tlef_fn)
+    new_tf_object.tf_parse()
+    return new_tf_object.layers()
+  else
+    #must be tlef file
+    new_tlef_object = TLEF_File.new(tlef_fn)
+    new_tlef_object.tlef_parse()
+    return new_tf_object.layers()
+  end
+
 end
 
 def main(opts)
@@ -879,11 +902,16 @@ def main(opts)
   # Set layer ordering
   layer_order = LayerCollection::layer_order
   LayerCollection::layer_order = layer_order
-  
+
+  ################################# mtmi233: edit layer ordering
+  if tlef_files
+    new_layers = get_layers_from_tlef(tlef_files.first)
+    LayerCollections::set_layer_orders(new_layers)
+  end
+    
   # Initialize array for the LEF parsing Errors
   errors = Hash.new
-  errors[:line_ending_semicolons]       = Array.new
-  
+  errors[:line_ending_semicolons]       = Array.new 
   errors[:missing_property_definitions] = Array.new
   errors[:missing_end_library_token]    = Array.new
   errors[:mangled_cell_end]             = Array.new
@@ -905,6 +933,7 @@ def main(opts)
   errors[:strange_direction]            = Array.new
   errors[:missing_use]                  = Array.new
   errors[:strange_use]                  = Array.new
+
 
   # if we just have one lef specified by the options, use that
   if lef_files.nil? || lef_files.empty?
@@ -1617,6 +1646,8 @@ begin
 if __FILE__ == $PROGRAM_NAME then 
  main(ARGV)
   main(opts)
+
+end
 
 rescue Exception => e
   $log.fatal e.message
