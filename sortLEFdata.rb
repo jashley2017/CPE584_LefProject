@@ -28,6 +28,90 @@ class PBR_Int
   end
 end
 
+class TF_File
+  #parses tf file given by file_path. Stores a hash of valid layers with information.
+  def initialize(file_path)
+      @layers = Array.new
+      @file_path = file_path
+      
+  end
+
+  def layers()
+      return @layers
+  end
+  def tf_parse()
+      techLayers_found = false
+      techLayers_end = false 
+      File.foreach(@file_path).with_index { |line, line_num|
+          if line.match(/\(techLayers/) #first find techLayers section
+              techLayers_found = true
+          elsif line.match(/\) ; techLayers/) #found end of techlayers
+              techLayers_end = true
+          elsif techLayers_found && !line.match(/^ ;/) #searching techLayers, havent reached end yet, isn't ;(layerName layerNumber Abbr.) line.
+              split_line = line.split(" ")
+              @layers << split_line[1]
+          end
+          break if techLayers_end == true
+      }
+  end
+  
+end
+
+class TLEF_File
+  #parses tlef file given by file_path. Stores a hash of valid layers with information.
+  def initialize(file_path)
+      @tlef_layers = Hash.new
+      @file_path = file_path
+      
+  end
+
+  def layers()
+      return @tlef_layers.keys
+  end
+
+  def _match_begin_layer(line)
+      layer_name = ''
+      if line.match(/^\s*LAYER\s+\w+\s*$/) #line has a layer definition
+          layer_name = line.split(" ")[1]# extracted layer name
+          layer_name.rstrip!
+      end
+      return layer_name
+  end
+
+  def _match_end_layer(line)
+      layer_name = ''
+      if line.match(/^\s*END\s+\w+\s*$/) #match end of line
+          layer_name = line.split(" ")[1]
+          layer_name.rstrip!
+      end
+      return layer_name
+  end
+
+  def tlef_parse()
+      File.foreach(@file_path).with_index { |line, line_num|
+          if !(line.match(/^\s*\#/) or line.match(/^\s*$/))#only look at lines that aren't comments
+              comment_split_line = line.split("#")
+              line = comment_split_line[0] #line is now everything before inline comment
+              
+              #line represents beginning of layer def
+              begin_layer = self._match_begin_layer(line)
+              if begin_layer != '' #begin layer exists
+                  @tlef_layers[begin_layer] = {'begin_line'=> line_num}
+              end 
+
+              #line represents end of layer def
+              end_layer = self._match_end_layer(line)
+              if end_layer != '' #end layer found 
+                  if @tlef_layers.key?(end_layer)
+                      @tlef_layers[end_layer]['end_line'] = line_num
+                  end
+              end
+          end
+      }
+  end
+
+end
+
 class LEF_File
   def initialize(file, errors)
     index = PBR_Int.new
@@ -368,7 +452,7 @@ class Pin
     @start_line_num = index.value + 1
     @name = line.split(/PIN /)[1].chomp()
     
-    $log.debug("Pin: " + @name)
+    $log.debug("Pin: " + @name)/
       
     @properties = Array.new
     @keywordProperties = Array.new
@@ -605,6 +689,15 @@ class LayerCollection
   def self.layer_order()
     return @@layer_order_selected
   end
+  ######################################################################################
+  #mtmi233: changes layer orders in the event that a tlef/tf file is found, otherwise
+  #         uses the default.
+  def self.use_tlef_layers(new_layers)
+    new_layer_order = "from_tlef"
+    @@layer_orders[new_layer_order] = new_layer_orders
+    @@layer_order_selected = new_layer_order
+  end
+
   def self.recognized_layer?(name)
     return @@layer_orders[@@layer_order_selected].include?(name.split()[0])
   end
@@ -754,10 +847,26 @@ class LibRuleChecker
       lef_pin_val_str = lef_pin_prop_str.select{|prop_str| !(prop_str =~ lef_prop_val_re).nil?}
       if lef_pin_val_str.empty?
         errors << "#{cell}\n\tFiles: #{lib_path}, #{lef_path}, \n\tPin: #{lib_pin_name}, \n\tProperty: #{lef_prop_key}\n"
-      end # if
+      end 
     end # unless
     return errors
   end
+end
+
+#####################################################
+#return layers array from either tlef or tf file
+def get_layers_from_tlef(tlef_fn)
+  if tlef_fn.match(/\.tf/)
+    new_tf_object = TF_File.new(tlef_fn)
+    new_tf_object.tf_parse()
+    return new_tf_object.layers()
+  else
+    #must be tlef file
+    new_tlef_object = TLEF_File.new(tlef_fn)
+    new_tlef_object.tlef_parse()
+    return new_tf_object.layers()
+  end
+
 end
 
 def main(opts)
@@ -795,11 +904,16 @@ def main(opts)
   # Set layer ordering
   layer_order = LayerCollection::layer_order
   LayerCollection::layer_order = layer_order
+
+ ################################# mtmi233: edit layer ordering
+  if tlef_files
+    new_layers = get_layers_from_tlef(tlef_files.first)
+    LayerCollections::use_tlef_layers(new_layers)
+  end
   
   # Initialize array for the LEF parsing Errors
   errors = Hash.new
-  errors[:line_ending_semicolons]       = Array.new
-  
+  errors[:line_ending_semicolons]       = Array.new 
   errors[:missing_property_definitions] = Array.new
   errors[:missing_end_library_token]    = Array.new
   errors[:mangled_cell_end]             = Array.new
@@ -821,6 +935,7 @@ def main(opts)
   errors[:strange_direction]            = Array.new
   errors[:missing_use]                  = Array.new
   errors[:strange_use]                  = Array.new
+
 
   # if we just have one lef specified by the options, use that
   if lef_files.nil? || lef_files.empty?
@@ -1503,6 +1618,21 @@ def ddc_scan_from_sysio(proj_dir)
   # puts option_dict[option_choice]
 end
 
+############################################################################################
+#mtmi233 get layers array from tlef/tf file.
+def get_layers_from_tlef(tlef_fn)
+  if tlef_fn.match(/\.tf/)
+    new_tf_object = TF_File.new(tlef_fn)
+    new_tf_object.tf_parse()
+    return new_tf_object.layers()
+  else
+    #must be tlef file
+    new_tlef_object = TLEF_File.new(tlef_fn)
+    new_tlef_object.tlef_parse()
+    return new_tf_object.layers()
+  end
+
+
 begin
   RuntimeOptions = Struct.new(:debug, :wsdir, :tlef, :libdir)
   opts = RuntimeOptions.new(false, Dir.pwd, nil, nil)
@@ -1540,7 +1670,15 @@ begin
     puts parser
     exit! 1
   end
+
+# this runs the program if it is called from 
+# command line.  
+if __FILE__ == $PROGRAM_NAME then 
+ main(ARGV)
   main(opts)
+
+end
+
 rescue Exception => e
   $log.fatal e.message
   exit! 1
