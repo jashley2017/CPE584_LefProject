@@ -1593,8 +1593,7 @@ def ddc_scan_from_sysio(proj_dir)
     if file_types_dict.key?("tlef")
       if !found_tlef.nil? || file_types_dict['tlef'].length > 1
         output << "WARNING: found multiple TLEFs, using the first one. Specify a TLEF in the args for specific one\n"
-      end
-      if file_types_dict['tlef'].length > 0
+      elsif file_types_dict['tlef'].length > 0
         output << "Using tlef config from #{ddc_dir} : #{file_types_dict['tlef'].first}\n"
         found_tlef = file_types_dict['tlef'].first
       else
@@ -1608,9 +1607,12 @@ def ddc_scan_from_sysio(proj_dir)
       else
         output << "#{count}. DDC: #{ddc_dir}, only found #{file_types_dict['lef'].length} LEF files, no lib found.\n"
       end
-      option_dict[count.to_s] = {"lef" => file_types_dict['lef'], "lib" => file_types_dict['lib'], 'tlef' => found_tlef}
+      option_dict[count.to_s] = {"lef" => file_types_dict['lef'], "lib" => file_types_dict['lib']}
       count += 1 
     end
+  }
+  option_dict.keys.each {|ddc_dir|
+    option_dict[ddc_dir]["tlef"] = found_tlef
   }
   puts output
   option_choice = gets.strip
