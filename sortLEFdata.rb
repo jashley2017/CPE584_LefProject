@@ -2,6 +2,9 @@
 # Copyright (c) 2005 Cypress Semiconductor, Intl.
 # =FILE:   sortLEFdata.rb
 #
+# Fall 2019 revision control lives here: 
+# https://github.com/jashley2017/CPE584_LefProject
+#
 # =AUTHOR: JFE
 #
 # =DESCRIPTION: Reads a LEF file and sorts the data numerically
@@ -13,6 +16,7 @@
 #   1.0   01/11/2018  JFE   First Check-in. starting from lef_area
 #   2.0   05/08/2019  JFE   From Spring 2019 VLSI class, major re-write 
 #
+
 require 'optparse'
 require 'logger'
 $log = Logger.new(STDOUT)
@@ -20,24 +24,22 @@ $log.level = Logger::INFO
 
 
 class PBR_Int
-  # wraps integer to ensure index does not get lost through function calls. 
-  # TODO: we are always passing file and index together, wrap both in PBR_Int and then name it better
+  # TODO: we are always passing file and index together, wrap both in 
+  # PBR_Int and then name it better
   attr_accessor :value
   def initialize()
     @value = 0
   end
 end
 
+#
+# parses tf file given by file_path. Stores a hash of valid layers with information.
+#
 class TF_File
-  #parses tf file given by file_path. Stores a hash of valid layers with information.
+  attr_reader :layers
   def initialize(file_path)
       @layers = Array.new
       @file_path = file_path
-      
-  end
-
-  def layers()
-      return @layers
   end
   def tf_parse()
       techLayers_found = false
@@ -54,15 +56,15 @@ class TF_File
           break if techLayers_end == true
       }
   end
-  
 end
 
+#
+# parses tlef file given by file_path. Stores a hash of valid layers with information.
+#
 class TLEF_File
-  #parses tlef file given by file_path. Stores a hash of valid layers with information.
   def initialize(file_path)
       @tlef_layers = Hash.new
       @file_path = file_path
-      
   end
 
   def layers()
@@ -109,10 +111,10 @@ class TLEF_File
           end
       }
   end
-
 end
 
 class LEF_File
+  attr_reader :cells
   def initialize(file, errors)
     index = PBR_Int.new
     @errors = errors
@@ -200,15 +202,13 @@ class LEF_File
     end
     outFile.print @end_line
   end
-  def cells()
-    @cells
-  end 
   def [](ind)
     @cells[ind]
   end
 end
 
 class Cell
+  attr_reader :pins, :properties, :keywordProperties, :name
   @@PropertyOrder = ["CLASS", "FOREIGN", "ORIGIN", "EEQ", "SIZE", "SYMMETRY", "SITE", "DENSITY", "PROPERTY"]
   @@classes_found = Hash.new
   @@symmetries_found = Hash.new
@@ -276,6 +276,7 @@ class Cell
         if split_line[0] == "PROPERTY"
           @keywordProperties.push(line)
         else
+          # TODO: should be case split_line[0]
           if split_line[0] == "ORIGIN"
             origin_found = true
             if split_line[1] != "0" || split_line[2] != "0" then
@@ -384,24 +385,10 @@ class Cell
     # associate pins to the index of the cells
     @pins[ind]
   end
-  # TODO: make these attr_accessors
-  def pins()
-    @pins
-  end
-  def properties()
-    # why return here and nowhere else
-    return @properties
-  end
-  def keywordProperties()
-    @keywordProperties
-  end
-  # Getter for instance var name
-  def name
-    @name
-  end
 end
 
 class Pin
+  attr_reader :properties, :keywordProperties, :name
   @@PropertyOrder = [
     "TAPERRULE", "DIRECTION", "USE", "NETEXPR", "SUPPLYSENSITIVITY", 
     "GROUNDSENSITIVITY", "SHAPE", "MUSTJOIN", "PROPERTY", 
@@ -427,6 +414,7 @@ class Pin
     end
     target_hash[property_key].push(message)
   end
+  # TODO: initialize should not do any work, seperate into a function that gets called by user
   def initialize(file, index, errors, parent_cell_name)
     line = get_current_line(file, index)
     if !Pin::start_line?(line)
@@ -520,7 +508,7 @@ class Pin
     @ports.each do |port|
       port.print(outFile)
     end
-    #@keywordProperties = @keywordProperties.sort
+    # @keywordProperties = @keywordProperties.sort
     @keywordProperties.each do |line|
       outFile.print line
     end
@@ -529,19 +517,10 @@ class Pin
   def [](ind)
     return @layers[ind]
   end
-  # could be attr accessors
-  def properties()
-    @properties
-  end
-  def keywordProperties()
-    @keywordProperties
-  end
-  def name
-    @name
-  end
 end
 
 class Layer
+  attr_reader :name, :coordinates
   @@coordinate_pad_precision = 3
   def self.start_line?(line)
     return line.match(/^\s*LAYER/)
@@ -632,10 +611,6 @@ class Layer
       outFile.print line
     end
   end
-  # Getter for instance var name
-  def name
-    @name
-  end
   def compare_to(other_layer)
     if @coordinates.length() != other_layer.coordinates().length()
       return @coordinates.length() <=> other_layer.coordinates().length()
@@ -651,16 +626,17 @@ class Layer
     end
     return 0
   end
-  def coordinates()
-    return @coordinates
-  end
 end
 
 class LayerCollection
+
   @@layer_order_selected = "s40"
   @@layer_orders = Hash.new
+  # TODO: make techfile or TLEF required for Layer checks, these lists
   @@layer_orders["s40"] = Array["LP_HVTP","LP_HVTN","CONT", "ME1", "VI1", "ME2","VI2","ME3"]
   @@layer_orders["abc"] = Array["met2", "via", "met1", "mcon", "li1", "nwell", "pwell"]
+
+  attr_reader :layers
   # Either an Obstruction or a Port.
   def self.start_line?(line)
     return line.match(/^\s*(OBS)|(PORT)/)
@@ -676,9 +652,10 @@ class LayerCollection
   def self.layer_order()
     return @@layer_order_selected
   end
-  ######################################################################################
-  #mtmi233: changes layer orders in the event that a tlef/tf file is found, otherwise
-  #         uses the default.
+  #
+  # changes layer orders in the event that a tlef/tf file is found, otherwise
+  # uses the default.
+  #
   def self.use_tlef_layers(new_layers)
     new_layer_order = "from_tlef"
     @@layer_orders[new_layer_order] = new_layers
@@ -718,9 +695,6 @@ class LayerCollection
   end
   def [](ind)
     return @layers[ind]
-  end
-  def layers()
-    return @layers
   end
   def layer_name_sort(a, b)
     layer_order = @@layer_orders[@@layer_order_selected]
@@ -773,6 +747,9 @@ def sort_by_property_list(list, a, b, tiebreaker)
   return 0
 end
 
+#
+# find properties that are strange, (TODO: should be deprecated)
+#
 def check_for_uncommon_properties(error_array, property_hash)
   rarity_factor_cutoff = 5
   property_type_count = property_hash.keys().length()
@@ -789,8 +766,14 @@ def check_for_uncommon_properties(error_array, property_hash)
   end
 end
 
+# TODO: collect all of the "get_current_line" and file related methods 
+# and store them under one function class or File wrapper object
+
+#
+# takes the next nonempty line past index, while incrementing index for tracking 
+# where you are in the file
+#
 def get_current_line(file, index)
-  # takes the next nonempty line past index, while incrementing index for tracking where you are in the file
   current_line = file[index.value]
   if !current_line.nil?
     current_line.chomp()
@@ -805,12 +788,18 @@ def get_current_line(file, index)
   return current_line
 end
 
+#
+# does the same as get_current_line, but just does it on the next line.
+#
 def get_next_line(file, index)
-  # does the same as get_current_line, but just does it on the next line.
   index.value += 1
   return get_current_line(file, index)
 end
 
+#
+# class for housing the different syntax rules and comparison checks against the liberty file
+# TODO: collect preexisting rules and move them here, do the same for lef and tlef
+#
 class LibRuleChecker
   #
   # acquire the pin prop that matches the key and value from the lib cell
@@ -845,8 +834,9 @@ class LibRuleChecker
   end
 end
 
-#####################################################
-#return layers array from either tlef or tf file
+# 
+# return layers array from either tlef or tf file
+#
 def get_layers_from_tlef(tlef_fn)
   if tlef_fn.match(/\.tf/)
     new_tf_object = TF_File.new(tlef_fn)
@@ -863,21 +853,8 @@ end
 
 def main(opts)
   $log.debug("main")
-  # TODO: 
-  # add JSON support (trivial) (Josh)
-  # tlef from Layer object, set class var of layers by a tlef file.           (Matt)
-  # optionalize all functionality better.                                     (James)
-  #   - add  wsdir and appropriate function call
-  #   - ensure every action the program is taking is specified by an argument.
-  # allow passing a ws_dir and intelligently search for tlef, lib, and lef    (Josh)
-  #    ideal: `sortLefdata.rb -wsdir my_proj`
-  # general: cleanup as you go                                                (All)
-  #   - functionalize the code (<100 lines per function)
-  #   - cleanup sysout
-  #   - dont be stupid
   
-  ################################## WS DIR Parsing
-  # does the ws_dir parsing
+  ################################## WS DIR Parsing (TODO: needs to be method)
   proj_dir = opts.wsdir
   liberty_dirpath = opts.libdir
   files_to_use_dict = nil
@@ -890,16 +867,15 @@ def main(opts)
     liberty_files = files_to_use_dict['lib']
     tlef_files = files_to_use_dict['tlef']
   end
-  # TODO: need to be able parse on multiple lefs and libs
 
-  ################################## LEF Parsing
+  ################################## LEF Parsing (TODO: needs to be method)
   # Set layer ordering
   layer_order = LayerCollection::layer_order
   LayerCollection::layer_order = layer_order
 
- ################################# mtmi233: edit layer ordering
+  # If tlef_file exists use its layers
   if tlef_files
-    new_layers = get_layers_from_tlef(tlef_files.first)
+    new_layers = get_layers_from_tlef(tlef_files)
     puts new_layers
     LayerCollection::use_tlef_layers(new_layers)
   end
@@ -967,7 +943,7 @@ def main(opts)
     parsed_lef_files[lef_file_path] = parsed_lef_file
   }
   
-  ################################## Lib Parsing
+  ################################## Lib Parsing (TODO: needs to be method)
   unless liberty_dirpath.nil? && liberty_files.nil?
     errors[:lef_missing_cell] = Array.new
     errors[:lef_missing_pin] = Array.new
@@ -1046,7 +1022,7 @@ def main(opts)
       end
     end
 
-    ################################## LEF-LIB Compare
+    ################################## LEF-LIB Compare (TODO: needs to be method)
     # Compare data; run checks.
     missing_cells = Hash.new
     area_mismatch = Hash.new
@@ -1219,14 +1195,17 @@ def main(opts)
     end
   end
 
-  ################################## Print file and errors
+  ################################## Print file and errors (TODO: needs to be method)
   # Print the file
+  # TODO: the errors are currently printed on error-to-error basis, they should be 
+  # collected and printed file-to-file. ie. Lib1.lib had these errors, Lib2.lib had 
+  # other errors
   parsed_lef_files.each_pair { |lef_filename, parsed_lef_file|
     output_filename = lef_filename + "_sorted"
+    # TODO: use block format for File.open
     outFile = File.open(output_filename, "w")
     parsed_lef_file.print(outFile)
     outFile.close()
-  #  return  #uncomment will return before errors print for easier debugging
     # If there are errors, print errors to file
     error_file_opened = false
     error_types = errors.keys()
@@ -1242,12 +1221,13 @@ def main(opts)
           error_file_opened = true
         end
         error_description = "\nTest \'" + error_type.to_s() + "\' failed.\n"
+        # TODO: should be case error_type
         if error_type == :line_ending_semicolons
           error_description += "Warning: The following lines have improper lack of space before the ending semicolon.\n"
           error_description += "These issues are fixed in " + output_filename + ".\n"
         elsif error_type == :strange_origin
           # error_description += "Warning: The following cells have an unusual ORIGIN specified.\n"
-          # ^ this is a dumb error
+          # ^ strange counts number of occurances, under a certain amount is strange. That is not descriptive nor helpful for testing
           next
         elsif error_type == :strange_foreign
           # error_description += "Warning: The following cells have an unusual FOREIGN specified.\n"
@@ -1328,6 +1308,7 @@ def main(opts)
 end
 
 class Liberty_Cell
+  attr_reader :name, :pins
   def self.properties()
     return Array["area"]
   end
@@ -1382,16 +1363,12 @@ class Liberty_Cell
   def [](ind)
     @pins[ind]
   end
-  def name
-    return @name
-  end
-  def pins
-    return @pins
-  end
 end
 
 class Liberty_Pin
+  attr_reader :name
   def self.properties()
+    # TODO: if pg_pin, should also check that use in LEF is PWR or GND
     return Array["direction"]
   end
   def initialize(pin_start_lines, pin_properties)
@@ -1417,7 +1394,7 @@ class Liberty_Pin
     Liberty_Pin::properties().each do |property|
       advance_to_line(pin_properties[property], start_line_num)
       if end_of_pins || pin_properties[property][0].split(' ')[0].to_i() < next_pin_start_line_num
-        @properties[property] = pin_properties[property].shift().split(': ')[1]
+        @properties[property] = pin_properties[property].shift().split(': ').last
       end
     end
   end
@@ -1427,13 +1404,9 @@ class Liberty_Pin
   def searchedProperties()
     return @properties.keys
   end
-  def name()
-    return @name
-  end
 end
+
 def advance_to_line(arr, line_num)
-#  puts line_num
-#  puts arr
   if arr.empty?
     return
   end
@@ -1618,11 +1591,11 @@ def ddc_scan_from_sysio(proj_dir)
   puts output
   option_choice = gets.strip
   return option_dict[option_choice]
-  # puts option_dict[option_choice]
 end
 
-############################################################################################
-#mtmi233 get layers array from tlef/tf file.
+#
+# get layers array from tlef/tf file.
+#
 def get_layers_from_tlef(tlef_fn)
   if tlef_fn.match(/\.tf/)
     new_tf_object = TF_File.new(tlef_fn)
@@ -1636,49 +1609,54 @@ def get_layers_from_tlef(tlef_fn)
   end
 end
 
-begin
-  RuntimeOptions = Struct.new(:debug, :wsdir, :tlef, :libdir)
-  opts = RuntimeOptions.new(false, Dir.pwd, nil, nil)
-  parser = OptionParser.new do |o|
-    o.separator "Options:"
-    o.on("-w","--wsdir=WSDIR", "Specify working directory") do |wsdir|  
-      if File.directory? File.expand_path(wsdir) then
-        opts.wsdir = wsdir
-      else
-        raise "#{wsdir}: Directory not accessible"
+#
+# runs if this file was called, this will not run if you simply import the module
+#
+if __FILE__ == $0
+  # parse args and run main
+  begin
+    RuntimeOptions = Struct.new(:debug, :wsdir, :tlef, :libdir)
+    opts = RuntimeOptions.new(false, Dir.pwd, nil, nil)
+    parser = OptionParser.new do |o|
+      o.separator "Options:"
+      o.on("-w","--wsdir=WSDIR", "Specify working directory") do |wsdir|  
+        if File.directory? File.expand_path(wsdir) then
+          opts.wsdir = wsdir
+        else
+          raise "#{wsdir}: Directory not accessible"
+        end
+      end
+      o.on("-d","--debug", "Print debugging information") do
+        opts.debug = true
+        $log.level = Logger::DEBUG
+      end
+      o.on("-l", "--liberty=LIBERTY", "Specify liberty file directory.") do |libdir|
+        opts.libdir = libdir
+      end
+      o.on("-t TLEF", "Specify path to technology LEF") do |tlef|
+        if File.exist? File.expand_path(tlef) then
+          opts.tlef = tlef
+        else
+          raise "#{tlef}: File not accessible"
+        end
+      end
+      o.on_tail("-h", "--help", "Print help") do
+        puts parser
+        exit! 0
       end
     end
-    o.on("-d","--debug", "Print debugging information") do
-      opts.debug = true
-      $log.level = Logger::DEBUG
-    end
-    o.on("-l", "--liberty=LIBERTY", "Specify liberty file directory.") do |libdir|
-      opts.libdir = libdir
-    end
-    o.on("-t TLEF", "Specify path to technology LEF") do |tlef|
-      if File.exist? File.expand_path(tlef) then
-        opts.tlef = tlef
-      else
-        raise "#{tlef}: File not accessible"
-      end
-    end
-    o.on_tail("-h", "--help", "Print help") do
+    begin parser.parse!
+    rescue => e
+      puts e.message
       puts parser
-      exit! 0
+      exit! 1
     end
-  end
-  begin parser.parse!
-  rescue => e
-    puts e.message
-    puts parser
+
+  main(opts)
+
+  rescue Exception => e
+    # $log.fatal e.message
+    raise
     exit! 1
   end
-
-main(opts)
-
-rescue Exception => e
-  # $log.fatal e.message
-  raise
-  exit! 1
 end
-
