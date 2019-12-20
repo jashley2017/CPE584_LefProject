@@ -45,9 +45,9 @@ class TF_File
       File.foreach(@file_path).with_index { |line, line_num|
           if line.match(/\(techLayers/) #first find techLayers section
               techLayers_found = true
-          elsif line.match(/\) ; techLayers/) #found end of techlayers
+          elsif line.match(/^\s*\)/) && techLayers_found == true #found end of techlayers
               techLayers_end = true
-          elsif techLayers_found && !line.match(/^ ;/) #searching techLayers, havent reached end yet, isn't ;(layerName layerNumber Abbr.) line.
+          elsif techLayers_found && !line.match(/^ ;/) #search techLayers that aren't comments.
               split_line = line.split(" ")
               @layers << split_line[1]
           end
@@ -900,6 +900,7 @@ def main(opts)
  ################################# mtmi233: edit layer ordering
   if tlef_files
     new_layers = get_layers_from_tlef(tlef_files.first)
+    puts new_layers
     LayerCollection::use_tlef_layers(new_layers)
   end
   
