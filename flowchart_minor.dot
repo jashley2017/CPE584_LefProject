@@ -5,6 +5,8 @@ digraph parseLEF {
     rankdir=TB;
     style="invis";    
     concentrate=true;
+    
+
     node [fontname=Helvetica shape=record];
 
     ###
@@ -13,14 +15,16 @@ digraph parseLEF {
 
     subgraph cluster {
         rankdir=TB;
-        label="Parse LEF";
-        graph [style=solid];
+
+        LEGEND [label="{Legend|Logically Checked\nRecognition Only\nMissing Check}"];
+
+        START [label="Start" shape=oval peripheries=1];
         SKIP_LINES [
             shape=plaintext
             label=<
                 <table border="0" cellborder="1">
                     <tr>
-                        <td colspan="3">Locate in LEF</td>
+                        <td colspan="3">Locate keyword in LEF</td>
                     </tr>
                     <tr>
                         <td port='prop'>PROPERTYDEFINITIONS</td>
@@ -33,9 +37,13 @@ digraph parseLEF {
         # PROPERTYDEFINITIONS
         P_READ_LINE [label="Record property"];
 
+        START
+        -> SKIP_LINES;
+
         SKIP_LINES:prop
         -> P_READ_LINE
         -> SKIP_LINES;
+
         # MACRO
         SKIP_LINES:macro
         -> M_SKIP_LINES;        
@@ -45,13 +53,13 @@ digraph parseLEF {
                 label=<
                     <table border="0" cellborder="1">
                         <tr>
-                            <td colspan="4">Locate in cell</td>
+                            <td colspan="4">Locate keyword in Macro</td>
                         </tr>
                         <tr>
                             <td port='prop'>PROPERTY</td>
                             <td port='pin'>PIN</td>
                             <td port='layer'>LAYER</td>
-                            <td port='end'>END CELL</td>
+                            <td port='end'>END</td>
                         </tr>
                     </table>
                 >
@@ -71,12 +79,12 @@ digraph parseLEF {
                     label=<
                         <table border="0" cellborder="1">
                             <tr>
-                                <td colspan="3">Locate in pin</td>
+                                <td colspan="3">Locate keywords in Pin</td>
                             </tr>
                             <tr>
                                 <td port='port'>PORT</td>
                                 <td port='layer'>LAYER</td>
-                                <td port='end'>END PIN</td>
+                                <td port='end'>END</td>
                             </tr>
                         </table>
                     >
@@ -88,26 +96,26 @@ digraph parseLEF {
                 -> PIN_SKIP_LINES:port;
 
                 # Layer
-                PIN_LAYER [label="{Record Layer|LP_HVTP\nLP_HVTN\nCONT\nME1\nVI1\nME2\nVI2\nME3}"];
+                PIN_LAYER [label="{Record Layer| Sourced from TLEF}"];
                 PIN_SKIP_LINES:layer
                 -> PIN_LAYER
                 -> PIN_SKIP_LINES:layer;
 
                 # End Pin
                 PIN_SKIP_LINES:end
-                -> M_SKIP_LINES:pin;
+                -> M_SKIP_LINES;
             # Layer
-            CELL_LAYER [label="{Record Layer|LP_HVTP\nLP_HVTN\nCONT\nME1\nVI1\nME2\nVI2\nME3}"];
+            CELL_LAYER [label="{Record Layer| Sourced from TLEF}"];
             M_SKIP_LINES:layer
             -> CELL_LAYER
             -> M_SKIP_LINES:layer;
 
             # End Cell
             M_SKIP_LINES:end
-            -> SKIP_LINES:macro;
+            -> SKIP_LINES;
         # End LEF
-        { rank=same; SKIP_LINES; LEF_EXIT;}
-        LEF_EXIT [label="Finished" shape=oval];
+        { rank=same; START; LEF_EXIT;}
+        LEF_EXIT [label="Finished" shape=oval peripheries=2];
 
         SKIP_LINES:end
         -> LEF_EXIT;
